@@ -118,6 +118,10 @@ class PbpWriterTests(unittest.TestCase):
             self.assertEqual(output[thumbnail_offset:background_offset], artwork["thumbnail"])
             self.assertIn(artwork["background"], output[background_offset:psar_offset])
             self.assertEqual(output[psar_offset:psar_offset + 12], b"PSISOIMG0000")
+            toc_offset = psar_offset + 0x800
+            self.assertEqual(output[toc_offset + 27:toc_offset + 30], bytes((0, 0, 0x20)))
+            self.assertEqual(output[toc_offset + 33:toc_offset + 36], bytes((0, 0, 0)))
+            self.assertEqual(output[toc_offset + 37:toc_offset + 40], bytes((0, 2, 0)))
 
             psar_size = struct.unpack_from("<I", output, psar_offset + 12)[0]
             self.assertGreater(psar_size, 0)

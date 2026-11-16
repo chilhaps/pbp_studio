@@ -51,15 +51,15 @@ def _build_toc(sheet: CueSheet, starts: dict[int, int], sector_count: int) -> by
     first, last = sheet.tracks[0], sheet.tracks[-1]
     toc[0:10] = bytes((0x41 if first.mode != "AUDIO" else 0x01, 0, 0xA0, 0, 0, 0, 0, 1, 0x20, 0))
     toc[10:20] = bytes((0x01, 0, 0xA1, 0, 0, 0, 0, _bcd(last.number), 0, 0))
-    toc[20:30] = bytes((0x01, 0, 0xA2, 0, 0, 0, 0, *_msf(sector_count + 150)))
+    toc[20:30] = bytes((0x01, 0, 0xA2, 0, 0, 0, 0, *_msf(sector_count)))
 
     for track in sheet.tracks:
         offset = 30 + (track.number - 1) * 10
         track_type = 0x01 if track.mode == "AUDIO" else 0x41
         toc[offset:offset + 3] = bytes((track_type, 0, _bcd(track.number)))
-        toc[offset + 3:offset + 6] = _msf(starts[track.number] + 150)
+        toc[offset + 3:offset + 6] = _msf(starts[track.number])
         toc[offset + 6] = 0
-        toc[offset + 7:offset + 10] = _msf(starts[track.number])
+        toc[offset + 7:offset + 10] = _msf(starts[track.number] + 150)
     return bytes(toc)
 
 

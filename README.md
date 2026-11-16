@@ -20,7 +20,7 @@ PBP Studio opens a browser tab and serves its interface on a temporary loopback-
 3. Optionally add a game cover, logo, and background by choosing an image, dropping it onto a frame, or copying an image and using Paste (then press Ctrl+V / Cmd+V).
 4. Build the PBP using the recommended compression setting. The browser downloads the finished file.
 
-Artwork is normalized to the PBP dimensions: game cover 80 × 80, logo 310 × 180, and background 480 × 272. The 384 × 216 live preview follows pop-fe-psp's composition: the background fills the frame, the logo overlays near the center, and the game cover appears as a 54 × 54 icon near the left. Drag the logo to reposition it; its placement is included in the exported background. For each image, choose **Crop** to fill the frame or **Fit** to keep the entire image (with transparent padding as needed). In Crop mode, drag the small image preview to reposition the crop and use the zoom slider to adjust it. Original image files are not modified.
+Artwork is normalized to the PBP dimensions: game cover 80 × 80, logo 310 × 180, and background 480 × 272. The 384 × 216 live preview follows pop-fe-psp's composition: the background fills the frame, the logo overlays near the center, and the game cover appears as a 54 × 54 icon near the left. Drag the logo to reposition it and use the **Logo size** slider to resize it from 50% to 150%; both changes are included in the exported background. For each image, choose **Crop** to fill the image frame or **Fit** to keep the entire image (with transparent padding as needed). In Crop mode, drag the small image preview to reposition the crop and use the zoom slider to adjust it. Original image files are not modified.
 
 ## Input support and limitations
 

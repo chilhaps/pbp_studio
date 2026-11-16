@@ -141,6 +141,10 @@ h2 { margin: 0; font: 500 20px/1.2 var(--display); letter-spacing: -.025em; }
 #artwork-preview.has-logo { cursor: grab; touch-action: none; }
 #artwork-preview.has-logo:active { cursor: grabbing; }
 #artwork-preview:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
+.logo-size-control { display: grid; grid-template-columns: auto 42px minmax(0,1fr); align-items: center; gap: 9px; max-width: 384px; margin: 10px auto 0; color: var(--dim); font: 8px var(--mono); letter-spacing: .08em; }
+.logo-size-control output { color: #c5ccc6; font-size: 9px; letter-spacing: 0; text-align: right; }
+#logo-size { width: 100%; min-width: 0; accent-color: var(--green); cursor: pointer; }
+#logo-size:disabled { opacity: .4; cursor: default; }
 .artwork-slots { display: grid; gap: 10px; }
 .art-slot { display: grid; grid-template-columns: 134px minmax(0,1fr); align-items: center; gap: 15px; padding: 12px; border: 1px solid #303633; border-radius: 8px; background: rgba(12,14,13,.30); transition: border-color .15s ease, background .15s ease; }
 .art-slot.is-active, .art-slot.is-dragging { border-color: #829e4f; background: rgba(196,242,104,.04); }

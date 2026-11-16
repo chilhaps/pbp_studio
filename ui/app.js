@@ -19,14 +19,17 @@
   const popfeArtworkWidth = 382;
   const artworkPreview = document.getElementById("artwork-preview");
   const previewContext = artworkPreview.getContext("2d");
+  const logoSizeInput = document.getElementById("logo-size");
+  const logoSizeOutput = document.getElementById("logo-size-value");
   const composedBackground = document.createElement("canvas");
   composedBackground.width = 480;
   composedBackground.height = 272;
   const composedBackgroundContext = composedBackground.getContext("2d");
   const logoPosition = { x: 148, y: 79 };
-  const logoPreviewWidth = Math.trunc(popfeArtworkWidth * 0.55);
-  const logoPreviewHeight = Math.trunc(previewHeight * 0.58);
+  const logoBaseWidth = Math.trunc(popfeArtworkWidth * 0.55);
+  const logoBaseHeight = Math.trunc(previewHeight * 0.58);
   const coverPreviewSize = Math.trunc(previewHeight * 0.25);
+  let logoScale = 1;
   let logoDrag = null;
   const artworkDimensions = {
     icon: { width: 80, height: 80, mode: "fit" },
@@ -232,14 +235,19 @@
 
     const logo = artwork.thumbnail;
     if (logo?.image.complete && logo.image.naturalWidth) {
+      const { width, height } = getLogoPreviewSize();
       composedBackgroundContext.drawImage(
         document.querySelector("#preview-thumbnail canvas"),
         logoPosition.x * composedBackground.width / previewWidth,
         logoPosition.y * composedBackground.height / previewHeight,
-        logoPreviewWidth * composedBackground.width / previewWidth,
-        logoPreviewHeight * composedBackground.height / previewHeight,
+        width * composedBackground.width / previewWidth,
+        height * composedBackground.height / previewHeight,
       );
     }
+  }
+
+  function getLogoPreviewSize() {
+    return { width: logoBaseWidth * logoScale, height: logoBaseHeight * logoScale };
   }
 
   function drawArtworkPreview() {
@@ -260,6 +268,7 @@
       );
     }
     artworkPreview.classList.toggle("has-logo", Boolean(artwork.thumbnail));
+    logoSizeInput.disabled = !artwork.thumbnail;
   }
 
   function previewPoint(event) {
@@ -273,11 +282,12 @@
   artworkPreview.addEventListener("pointerdown", (event) => {
     if (!artwork.thumbnail) return;
     const point = previewPoint(event);
+    const { width, height } = getLogoPreviewSize();
     if (
       point.x < logoPosition.x
-      || point.x > logoPosition.x + logoPreviewWidth
+      || point.x > logoPosition.x + width
       || point.y < logoPosition.y
-      || point.y > logoPosition.y + logoPreviewHeight
+      || point.y > logoPosition.y + height
     ) return;
     logoDrag = { offsetX: point.x - logoPosition.x, offsetY: point.y - logoPosition.y };
     artworkPreview.setPointerCapture(event.pointerId);
@@ -286,8 +296,9 @@
   artworkPreview.addEventListener("pointermove", (event) => {
     if (!logoDrag) return;
     const point = previewPoint(event);
-    logoPosition.x = Math.max(0, Math.min(previewWidth - logoPreviewWidth, point.x - logoDrag.offsetX));
-    logoPosition.y = Math.max(0, Math.min(previewHeight - logoPreviewHeight, point.y - logoDrag.offsetY));
+    const { width, height } = getLogoPreviewSize();
+    logoPosition.x = Math.max(0, Math.min(previewWidth - width, point.x - logoDrag.offsetX));
+    logoPosition.y = Math.max(0, Math.min(previewHeight - height, point.y - logoDrag.offsetY));
     drawArtworkPreview();
   });
   artworkPreview.addEventListener("pointerup", () => { logoDrag = null; });
@@ -299,10 +310,22 @@
     if (event.key === "ArrowRight") logoPosition.x += step;
     if (event.key === "ArrowUp") logoPosition.y -= step;
     if (event.key === "ArrowDown") logoPosition.y += step;
-    logoPosition.x = Math.max(0, Math.min(previewWidth - logoPreviewWidth, logoPosition.x));
-    logoPosition.y = Math.max(0, Math.min(previewHeight - logoPreviewHeight, logoPosition.y));
+    const { width, height } = getLogoPreviewSize();
+    logoPosition.x = Math.max(0, Math.min(previewWidth - width, logoPosition.x));
+    logoPosition.y = Math.max(0, Math.min(previewHeight - height, logoPosition.y));
     drawArtworkPreview();
     event.preventDefault();
+  });
+  logoSizeInput.addEventListener("input", () => {
+    const previousSize = getLogoPreviewSize();
+    const centerX = logoPosition.x + previousSize.width / 2;
+    const centerY = logoPosition.y + previousSize.height / 2;
+    logoScale = Number(logoSizeInput.value) / 100;
+    const nextSize = getLogoPreviewSize();
+    logoPosition.x = Math.max(0, Math.min(previewWidth - nextSize.width, centerX - nextSize.width / 2));
+    logoPosition.y = Math.max(0, Math.min(previewHeight - nextSize.height, centerY - nextSize.height / 2));
+    logoSizeOutput.value = `${logoSizeInput.value}%`;
+    drawArtworkPreview();
   });
 
   function updateArtworkControls(slot) {

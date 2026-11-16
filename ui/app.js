@@ -2,21 +2,22 @@
   "use strict";
 
   const token = document.querySelector('meta[name="app-token"]').content;
-  const sourceInput = document.getElementById("source-files");
-  const sourceList = document.getElementById("source-list");
-  const sourceListWrap = document.getElementById("source-list-wrap");
-  const sourceDrop = document.getElementById("source-drop");
+  const discList = document.getElementById("disc-list");
+  const discListWrap = document.getElementById("disc-list-wrap");
+  const discInput = document.getElementById("disc-files");
+  const addDiscButton = document.getElementById("add-disc");
+  const clearDiscsButton = document.getElementById("clear-discs");
   const titleInput = document.getElementById("game-title");
   const status = document.getElementById("status-message");
   const convertButton = document.getElementById("convert-button");
-  const sourceFiles = new Map();
   const artwork = { icon: null, thumbnail: null, background: null };
+  let discs = [];
+  let busy = false;
   const artworkDimensions = {
     icon: { width: 80, height: 80, mode: "fit" },
     thumbnail: { width: 310, height: 180, mode: "crop" },
     background: { width: 480, height: 272, mode: "crop" },
   };
-  let cueFileId = null;
   let activeSlot = "icon";
 
   function setStatus(message, kind = "") {
@@ -24,93 +25,118 @@
     status.dataset.kind = kind;
   }
 
-  function humanSize(size) {
-    if (size < 1024 * 1024) return `${(size / 1024).toFixed(0)} KB`;
-    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  function renderDiscs() {
+    discList.replaceChildren();
+    discListWrap.hidden = discs.length === 0;
+    addDiscButton.textContent = `Add Disc ${discs.length + 1}`;
+    addDiscButton.disabled = busy || discs.length >= 5;
+    discInput.disabled = busy || discs.length >= 5;
+    clearDiscsButton.disabled = busy || discs.length === 0;
+    discs.forEach((disc, index) => {
+      const item = document.createElement("li");
+      item.className = "source-item disc-item";
+      const number = document.createElement("span");
+      number.className = "disc-number";
+      number.textContent = `DISC ${index + 1}`;
+      const name = document.createElement("span");
+      name.className = "source-name";
+      name.textContent = disc.name;
+      name.title = disc.name;
+      const tracks = document.createElement("span");
+      tracks.className = "source-size";
+      tracks.textContent = `${disc.tracks} tracks · ${disc.binCount} BIN`;
+      const controls = document.createElement("span");
+      controls.className = "disc-controls";
+      for (const [label, text, action] of [
+        ["Move disc up", "↑", () => {
+          if (index > 0) [discs[index - 1], discs[index]] = [discs[index], discs[index - 1]];
+          renderDiscs();
+        }],
+        ["Move disc down", "↓", () => {
+          if (index < discs.length - 1) [discs[index + 1], discs[index]] = [discs[index], discs[index + 1]];
+          renderDiscs();
+        }],
+        ["Remove disc", "×", () => {
+          discs.splice(index, 1);
+          renderDiscs();
+        }],
+      ]) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "disc-control";
+        button.setAttribute("aria-label", label);
+        button.textContent = text;
+        button.disabled = busy;
+        button.addEventListener("click", action);
+        controls.append(button);
+      }
+      item.append(number, name, tracks, controls);
+      discList.append(item);
+    });
   }
 
-  function uniqueId() {
-    return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
-  }
+  clearDiscsButton.addEventListener("click", () => {
+    if (busy) return;
+    discs = [];
+    renderDiscs();
+    setStatus("");
+  });
 
-  function setSources(files) {
-    const accepted = Array.from(files).filter((file) => /\.(cue|bin)$/i.test(file.name));
-    if (!accepted.length) {
-      setStatus("Choose a .cue sheet and its matching .bin image file(s).", "error");
+  addDiscButton.addEventListener("click", () => discInput.click());
+  discInput.addEventListener("change", async () => {
+    const files = Array.from(discInput.files || []);
+    discInput.value = "";
+    if (!files.length) return;
+
+    if (discs.length >= 5) {
+      setStatus("A PBP can contain no more than five discs.", "error");
+      return;
+    }
+    const cueFiles = files.filter((file) => /\.cue$/i.test(file.name));
+    const binFiles = files.filter((file) => /\.bin$/i.test(file.name));
+    if (cueFiles.length !== 1 || binFiles.length < 1 || cueFiles.length + binFiles.length !== files.length) {
+      setStatus("Choose exactly one CUE sheet and all BIN files for this disc.", "error");
+      return;
+    }
+    const names = files.map((file) => file.name.toLowerCase());
+    if (new Set(names).size !== names.length) {
+      setStatus("The selected disc contains files with duplicate names.", "error");
       return;
     }
 
-    let titleSet = cueFileId !== null;
-    const existing = new Set(Array.from(sourceFiles.values(), (file) => file.name.toLowerCase()));
-    for (const file of accepted) {
-      if (existing.has(file.name.toLowerCase())) continue;
-      const id = uniqueId();
-      sourceFiles.set(id, file);
-      existing.add(file.name.toLowerCase());
-      if (/\.cue$/i.test(file.name) && !cueFileId) cueFileId = id;
-      if (/\.cue$/i.test(file.name) && !titleSet) {
-        titleInput.value = file.name.replace(/\.cue$/i, "").replace(/[_-]+/g, " ");
-        titleSet = true;
+    busy = true;
+    convertButton.disabled = true;
+    renderDiscs();
+    const discNumber = discs.length + 1;
+    try {
+      const sourceIds = [];
+      const orderedFiles = [cueFiles[0], ...binFiles];
+      for (let index = 0; index < orderedFiles.length; index += 1) {
+        const file = orderedFiles[index];
+        setStatus(`Uploading Disc ${discNumber}: ${file.name} (${index + 1}/${orderedFiles.length})…`);
+        sourceIds.push((await upload(file)).id);
       }
-    }
-    renderSources();
-    setStatus("");
-  }
-
-  function renderSources() {
-    sourceList.replaceChildren();
-    sourceListWrap.hidden = sourceFiles.size === 0;
-    for (const [id, file] of sourceFiles) {
-      const item = document.createElement("li");
-      item.className = "source-item";
-      if (/\.cue$/i.test(file.name)) {
-        const radio = document.createElement("input");
-        radio.type = "radio";
-        radio.name = "cue-file";
-        radio.checked = cueFileId === id;
-        radio.setAttribute("aria-label", `Use ${file.name} as the CUE sheet`);
-        radio.addEventListener("change", () => { cueFileId = id; });
-        item.append(radio);
-      } else {
-        const spacer = document.createElement("span");
-        spacer.style.width = "13px";
-        item.append(spacer);
+      setStatus(`Checking Disc ${discNumber}…`);
+      const response = await fetch("/api/discs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-App-Token": token },
+        body: JSON.stringify({ sourceIds }),
+      });
+      const disc = await response.json();
+      if (!response.ok) throw new Error(disc.error || "Could not validate this disc.");
+      discs.push(disc);
+      renderDiscs();
+      if (!titleInput.value.trim()) {
+        titleInput.value = disc.name.replace(/\.cue$/i, "").replace(/[_-]+/g, " ");
       }
-      const type = document.createElement("span");
-      type.className = "file-type";
-      type.textContent = /\.cue$/i.test(file.name) ? "CUE" : "BIN";
-      const name = document.createElement("span");
-      name.className = "source-name";
-      name.textContent = file.name;
-      const size = document.createElement("span");
-      size.className = "source-size";
-      size.textContent = humanSize(file.size);
-      item.append(type, name, size);
-      sourceList.append(item);
+      setStatus(`Disc ${discNumber} uploaded and validated.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : `Could not upload Disc ${discNumber}.`, "error");
+    } finally {
+      busy = false;
+      convertButton.disabled = false;
+      renderDiscs();
     }
-  }
-
-  sourceInput.addEventListener("change", () => {
-    setSources(sourceInput.files);
-    sourceInput.value = "";
-  });
-
-  document.getElementById("clear-sources").addEventListener("click", () => {
-    sourceFiles.clear();
-    cueFileId = null;
-    renderSources();
-    setStatus("");
-  });
-
-  sourceDrop.addEventListener("dragover", (event) => {
-    event.preventDefault();
-    sourceDrop.classList.add("is-dragging");
-  });
-  sourceDrop.addEventListener("dragleave", () => sourceDrop.classList.remove("is-dragging"));
-  sourceDrop.addEventListener("drop", (event) => {
-    event.preventDefault();
-    sourceDrop.classList.remove("is-dragging");
-    setSources(event.dataTransfer.files);
   });
 
   function setArtwork(slot, file) {
@@ -313,8 +339,12 @@
 
   document.getElementById("convert-form").addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (!cueFileId || !sourceFiles.has(cueFileId)) {
-      setStatus("Add a CUE sheet and its matching BIN image file(s).", "error");
+    if (busy) {
+      setStatus("Wait for the current disc upload to finish.", "error");
+      return;
+    }
+    if (!discs.length) {
+      setStatus("Upload the CUE and BIN files for at least one disc.", "error");
       return;
     }
     if (!titleInput.value.trim()) {
@@ -322,16 +352,12 @@
       setStatus("Enter a game title.", "error");
       return;
     }
+    busy = true;
     convertButton.disabled = true;
-    setStatus("Preparing source files…");
+    renderDiscs();
+    setStatus("Preparing artwork…");
     try {
-      const uploadedSources = [];
-      let cueUploadId;
-      for (const [id, file] of sourceFiles) {
-        const result = await upload(file);
-        uploadedSources.push(result.id);
-        if (id === cueFileId) cueUploadId = result.id;
-      }
+      const selectedDiscs = discs.map((disc) => ({ sourceIds: disc.sourceIds }));
       const uploadedImages = {};
       for (const slot of Object.keys(artwork)) {
         if (!artwork[slot]) continue;
@@ -346,8 +372,7 @@
         body: JSON.stringify({
           title: titleInput.value,
           gameId: document.getElementById("game-id").value,
-          cueId: cueUploadId,
-          sourceIds: uploadedSources,
+          discs: selectedDiscs,
           images: uploadedImages,
           compression: Number(document.getElementById("compression").value),
         }),
@@ -369,7 +394,9 @@
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Conversion failed.", "error");
     } finally {
+      busy = false;
       convertButton.disabled = false;
+      renderDiscs();
     }
   });
 })();

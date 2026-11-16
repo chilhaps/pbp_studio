@@ -1,6 +1,7 @@
 import hashlib
 import struct
 import tempfile
+import threading
 import unittest
 import zlib
 from pathlib import Path
@@ -10,10 +11,17 @@ from cue_sheet import (
     image_sector_count,
     iter_image_segments,
     parse_cue,
+    resolve_sibling_source_files,
     resolve_source_files,
     track_start_sectors,
 )
-from pbp_writer import BLOCK_SIZE, write_pbp
+from pbp_writer import (
+    BLOCK_SIZE,
+    write_multidisc_pbp,
+    write_pbp,
+    write_uploaded_multidisc_pbp,
+)
+from server import Upload, _resolve_uploaded_disc
 
 
 class CueSheetTests(unittest.TestCase):
@@ -76,8 +84,85 @@ class CueSheetTests(unittest.TestCase):
             ValueError, "raw 2352-byte-sector BIN", resolve_source_files, sheet, {"disc.bin": image}
         )
 
+    def test_resolves_bin_sibling_case_insensitively(self):
+        cue = self.create_cue(
+            'FILE "DISC.BIN" BINARY\nTRACK 01 MODE1/2352\nINDEX 01 00:00:00\n'
+        )
+        image = self.create_bin("disc.bin", 2, b"A")
+
+        sheet = parse_cue(cue)
+
+        self.assertEqual(resolve_sibling_source_files(cue, sheet), {"DISC.BIN": image})
+
+
+class UploadedDiscTests(unittest.TestCase):
+    def test_validates_one_uploaded_cue_and_all_referenced_bins(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cue = root / "cue.upload"
+            image = root / "image.upload"
+            cue.write_text(
+                'FILE "DISC.BIN" BINARY\nTRACK 01 MODE1/2352\nINDEX 01 00:00:00\n',
+                encoding="utf-8",
+            )
+            image.write_bytes(bytes(20 * SECTOR_SIZE))
+            uploads = {
+                "cue-id": Upload(cue, "disc.cue", cue.stat().st_size),
+                "bin-id": Upload(image, "disc.bin", image.stat().st_size),
+            }
+
+            disc = _resolve_uploaded_disc(["cue-id", "bin-id"], uploads, threading.Lock())
+
+            self.assertEqual(disc.name, "disc.cue")
+            self.assertEqual(disc.track_count, 1)
+            self.assertEqual(list(disc.sources), ["DISC.BIN"])
+
+    def test_rejects_extra_bin_or_multiple_cue_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cue = root / "cue.upload"
+            image = root / "image.upload"
+            extra_image = root / "extra.upload"
+            second_cue = root / "second-cue.upload"
+            cue.write_text(
+                'FILE "disc.bin" BINARY\nTRACK 01 MODE1/2352\nINDEX 01 00:00:00\n',
+                encoding="utf-8",
+            )
+            second_cue.write_text(cue.read_text(encoding="utf-8"), encoding="utf-8")
+            image.write_bytes(bytes(20 * SECTOR_SIZE))
+            extra_image.write_bytes(bytes(20 * SECTOR_SIZE))
+            uploads = {
+                "cue-id": Upload(cue, "disc.cue", cue.stat().st_size),
+                "bin-id": Upload(image, "disc.bin", image.stat().st_size),
+                "extra-bin-id": Upload(extra_image, "extra.bin", extra_image.stat().st_size),
+                "second-cue-id": Upload(second_cue, "disc2.cue", second_cue.stat().st_size),
+            }
+
+            with self.assertRaisesRegex(ValueError, "not referenced"):
+                _resolve_uploaded_disc(
+                    ["cue-id", "bin-id", "extra-bin-id"], uploads, threading.Lock()
+                )
+            with self.assertRaisesRegex(ValueError, "exactly one"):
+                _resolve_uploaded_disc(
+                    ["cue-id", "bin-id", "second-cue-id"], uploads, threading.Lock()
+                )
+
 
 class PbpWriterTests(unittest.TestCase):
+    def _create_disc(self, root: Path, folder: str, fill: int) -> Path:
+        disc_folder = root / folder
+        disc_folder.mkdir()
+        cue = disc_folder / f"{folder}.cue"
+        image_path = disc_folder / f"{folder}.bin"
+        cue.write_text(
+            f'FILE "{image_path.name}" BINARY\n'
+            "TRACK 01 MODE1/2352\n"
+            "INDEX 01 00:00:00\n",
+            encoding="utf-8",
+        )
+        image_path.write_bytes(bytes((fill,)) * (20 * SECTOR_SIZE))
+        return cue
+
     def test_writes_sections_psar_indexes_and_startdat(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -161,6 +246,100 @@ class PbpWriterTests(unittest.TestCase):
             image_path.write_bytes(bytes(20 * SECTOR_SIZE))
             with self.assertRaisesRegex(ValueError, "Game ID"):
                 write_pbp(cue, {"disc.bin": image_path}, output_path, "Test", "invalid", {})
+            self.assertFalse(output_path.exists())
+
+    def test_writes_multi_disc_offsets_psars_and_single_startdat(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cue_paths = [
+                self._create_disc(root, "first", 0x41),
+                self._create_disc(root, "second", 0x42),
+            ]
+            output_path = root / "multi.pbp"
+
+            write_multidisc_pbp(
+                cue_paths, output_path, "Test Game", "SLUS-12345", {}
+            )
+
+            output = output_path.read_bytes()
+            psar_offset = struct.unpack_from("<I", output, 36)[0]
+            self.assertEqual(output[psar_offset:psar_offset + 16], b"PSTITLEIMG000000")
+            startdat_offset = struct.unpack_from("<I", output, psar_offset + 0x10)[0]
+            disc_offsets = struct.unpack_from("<5I", output, psar_offset + 0x200)
+            self.assertEqual(disc_offsets[0] % 0x8000, 0)
+            self.assertEqual(disc_offsets[1] % 0x8000, 0)
+            self.assertGreater(disc_offsets[1], disc_offsets[0])
+            self.assertEqual(disc_offsets[2:], (0, 0, 0))
+            self.assertEqual(
+                output[psar_offset + 0x264:psar_offset + 0x26F],
+                b"_SLUS_12345",
+            )
+            self.assertEqual(
+                output[psar_offset + 0x30C:psar_offset + 0x315],
+                b"Test Game",
+            )
+            self.assertEqual(output.count(b"STARTDAT"), 1)
+            self.assertEqual(output[psar_offset + startdat_offset:][:8], b"STARTDAT")
+
+            for offset, fill in zip(disc_offsets[:2], (0x41, 0x42)):
+                disc_psar = psar_offset + offset
+                self.assertEqual(output[disc_psar:disc_psar + 12], b"PSISOIMG0000")
+                data_offset, data_length = struct.unpack_from(
+                    "<IH", output, disc_psar + 0x4000
+                )
+                payload_start = disc_psar + 0x100000 + data_offset
+                payload = output[payload_start:payload_start + data_length]
+                block = payload if data_length == BLOCK_SIZE else zlib.decompress(payload, -15)
+                self.assertEqual(block[:SECTOR_SIZE], bytes((fill,)) * SECTOR_SIZE)
+
+    def test_one_selected_disc_keeps_single_disc_layout(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cue = self._create_disc(root, "only", 0x41)
+            output_path = root / "single.pbp"
+
+            write_multidisc_pbp([cue], output_path, "Single Disc", "SLUS-12345", {})
+
+            output = output_path.read_bytes()
+            psar_offset = struct.unpack_from("<I", output, 36)[0]
+            self.assertEqual(output[psar_offset:psar_offset + 12], b"PSISOIMG0000")
+            self.assertNotIn(b"PSTITLEIMG000000", output[psar_offset:psar_offset + 0x4000])
+            self.assertEqual(output.count(b"STARTDAT"), 1)
+
+    def test_uploaded_disc_writer_accepts_staged_file_names(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cue = root / "cue-uuid.upload"
+            image = root / "bin-uuid.upload"
+            output_path = root / "uploaded.pbp"
+            cue.write_text(
+                'FILE "disc.bin" BINARY\nTRACK 01 MODE1/2352\nINDEX 01 00:00:00\n',
+                encoding="utf-8",
+            )
+            image.write_bytes(bytes(20 * SECTOR_SIZE))
+
+            write_uploaded_multidisc_pbp(
+                [(cue, {"disc.bin": image})],
+                output_path,
+                "Uploaded Disc",
+                "SLUS-12345",
+                {},
+            )
+
+            output = output_path.read_bytes()
+            psar_offset = struct.unpack_from("<I", output, 36)[0]
+            self.assertEqual(output[psar_offset:psar_offset + 12], b"PSISOIMG0000")
+
+    def test_rejects_more_than_five_disc_selections(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output_path = root / "too-many.pbp"
+            cue_paths = [root / f"disc-{index}.cue" for index in range(6)]
+
+            with self.assertRaisesRegex(ValueError, "one and five"):
+                write_multidisc_pbp(
+                    cue_paths, output_path, "Test Game", "SLUS-12345", {}
+                )
             self.assertFalse(output_path.exists())
 
 

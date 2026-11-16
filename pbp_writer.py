@@ -10,6 +10,7 @@ from cue_sheet import (
     image_sector_count,
     iter_image_segments,
     parse_cue,
+    resolve_sibling_source_files,
     resolve_source_files,
     track_start_sectors,
 )
@@ -19,6 +20,7 @@ BLOCK_SIZE = 0x9300
 PSAR_IMAGE_OFFSET = 0x100000
 INDEX_OFFSET = 0x4000
 MAX_INDEXES = 0x7E00
+MAX_DISCS = 5
 ASSET_DIR = Path(__file__).resolve().parent / "assets"
 
 
@@ -213,12 +215,50 @@ def _write_psar(output, sheet: CueSheet, sources, title: str, disc_id: str, leve
     output.seek(end_of_iso)
     output.write(bytes(psar_start + psar_size - output.tell()))
 
+
+def _write_startdat(output) -> None:
     start_header = bytearray(_read_asset("startdat_header.bin"))
     logo = _read_asset("pops_logo.png")
     struct.pack_into("<I", start_header, 20, len(logo))
     output.write(start_header)
     output.write(logo)
     output.write(_read_asset("startdat_footer.bin"))
+
+
+def _write_multidisc_psar(output, discs, title: str, disc_id: str, level: int) -> None:
+    psar_start = output.tell()
+    title_header = bytearray(_read_asset("pstitle_header.bin"))
+    if len(title_header) != 0x400:
+        raise RuntimeError("The multi-disc PBP title header has an invalid size.")
+    output.write(title_header)
+
+    disc_offsets = []
+    for sheet, sources in discs:
+        disc_start = _round_up(output.tell(), 0x8000)
+        disc_offset = disc_start - psar_start
+        if disc_offset > 0xFFFFFFFF:
+            raise ValueError("The multi-disc PBP exceeds its 32-bit disc offset limit.")
+        output.write(bytes(disc_start - output.tell()))
+        disc_offsets.append(disc_offset)
+        _write_psar(output, sheet, sources, title, disc_id, level)
+
+    startdat_offset = _round_up(output.tell(), 0x10)
+    if startdat_offset - psar_start > 0xFFFFFFFF:
+        raise ValueError("The multi-disc PBP exceeds its 32-bit trailer offset limit.")
+    output.write(bytes(startdat_offset - output.tell()))
+    title_header[:16] = b"PSTITLEIMG000000"
+    struct.pack_into("<I", title_header, 0x10, startdat_offset - psar_start)
+    for index, disc_offset in enumerate(disc_offsets):
+        struct.pack_into("<I", title_header, 0x200 + index * 4, disc_offset)
+    struct.pack_into(
+        "<I", title_header, 0x284, startdat_offset - psar_start + 0x2D31
+    )
+    title_header[0x264:0x26F] = ("_" + disc_id[:4] + "_" + disc_id[4:]).encode("ascii")
+    title_header[0x30C:0x30C + len(title.encode("utf-8"))] = title.encode("utf-8")
+    output.seek(psar_start)
+    output.write(title_header)
+    output.seek(startdat_offset)
+    _write_startdat(output)
 
 
 def write_pbp(
@@ -264,3 +304,106 @@ def write_pbp(
             output.write(resource)
         output.write(bytes(psar_offset - output.tell()))
         _write_psar(output, sheet, sources, title, disc_id, compression_level)
+        _write_startdat(output)
+
+
+def write_multidisc_pbp(
+    cue_paths: list[Path],
+    output_path: Path,
+    title: str,
+    game_id: str,
+    images: dict[str, bytes],
+    compression_level: int = 5,
+) -> None:
+    title = title.strip()
+    if not title:
+        raise ValueError("Enter a game title.")
+    if len(title.encode("utf-8")) > 127:
+        raise ValueError("Game title must be 127 UTF-8 bytes or fewer.")
+    disc_id = _validate_game_id(game_id)
+    if compression_level not in range(1, 10):
+        raise ValueError("Compression level must be between 1 and 9.")
+    if not 1 <= len(cue_paths) <= MAX_DISCS:
+        raise ValueError("Select between one and five CUE sheets.")
+
+    discs = []
+    seen_paths = set()
+    for cue_path in cue_paths:
+        resolved_path = cue_path.resolve()
+        if resolved_path in seen_paths:
+            raise ValueError("The same CUE sheet was selected more than once.")
+        seen_paths.add(resolved_path)
+        if resolved_path.suffix.casefold() != ".cue" or not resolved_path.is_file():
+            raise ValueError(f"Selected disc is not a readable CUE sheet: {cue_path.name}")
+        sheet = parse_cue(resolved_path)
+        sources = resolve_sibling_source_files(resolved_path, sheet)
+        discs.append((sheet, sources))
+
+    _write_prepared_pbp(discs, output_path, title, disc_id, images, compression_level)
+
+
+def write_uploaded_multidisc_pbp(
+    disc_sources: list[tuple[Path, dict[str, Path]]],
+    output_path: Path,
+    title: str,
+    game_id: str,
+    images: dict[str, bytes],
+    compression_level: int = 5,
+) -> None:
+    title = title.strip()
+    if not title:
+        raise ValueError("Enter a game title.")
+    if len(title.encode("utf-8")) > 127:
+        raise ValueError("Game title must be 127 UTF-8 bytes or fewer.")
+    disc_id = _validate_game_id(game_id)
+    if compression_level not in range(1, 10):
+        raise ValueError("Compression level must be between 1 and 9.")
+    if not 1 <= len(disc_sources) <= MAX_DISCS:
+        raise ValueError("Select between one and five CUE/BIN disc sets.")
+
+    discs = []
+    for cue_path, uploaded_sources in disc_sources:
+        if not cue_path.is_file():
+            raise ValueError(f"Selected disc CUE upload is missing: {cue_path.name}")
+        sheet = parse_cue(cue_path)
+        sources = resolve_source_files(sheet, uploaded_sources)
+        discs.append((sheet, sources))
+
+    _write_prepared_pbp(discs, output_path, title, disc_id, images, compression_level)
+
+
+def _write_prepared_pbp(
+    discs: list[tuple[CueSheet, dict[str, Path]]],
+    output_path: Path,
+    title: str,
+    disc_id: str,
+    images: dict[str, bytes],
+    compression_level: int,
+) -> None:
+    sfo = _build_sfo(title, disc_id)
+    resources = [
+        sfo,
+        images.get("icon", b""),
+        b"",
+        images.get("thumbnail", b""),
+        images.get("background", b""),
+        b"",
+        _read_asset("data_psp.bin"),
+    ]
+    offsets = [0x28]
+    for resource in resources:
+        offsets.append(offsets[-1] + len(resource))
+    psar_offset = _round_up(offsets[-1], 0x10000)
+    header = struct.pack("<10I", 0x50425000, 0x00010000, *offsets[:7], psar_offset)
+
+    with output_path.open("wb+") as output:
+        output.write(header)
+        for resource in resources:
+            output.write(resource)
+        output.write(bytes(psar_offset - output.tell()))
+        if len(discs) == 1:
+            sheet, sources = discs[0]
+            _write_psar(output, sheet, sources, title, disc_id, compression_level)
+            _write_startdat(output)
+        else:
+            _write_multidisc_psar(output, discs, title, disc_id, compression_level)

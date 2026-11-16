@@ -36,17 +36,17 @@
             </div>
           </div>
 
-          <label class="dropzone" id="source-drop" for="source-files">
-            <input id="source-files" type="file" accept=".cue,.bin,application/octet-stream" multiple>
+          <div class="dropzone source-picker" id="source-drop">
             <span class="upload-icon" aria-hidden="true">↑</span>
-            <strong>Drop your CUE and BIN files here</strong>
-            <span>or <span class="text-link">browse files</span></span>
-            <small>Raw 2352-byte sectors · CUE + one or more BIN files</small>
-          </label>
+            <strong>Add one disc at a time, in order</strong>
+            <input id="disc-files" type="file" accept=".cue,.bin" multiple aria-hidden="true" tabindex="-1">
+            <button type="button" class="browse-button" id="add-disc">Add Disc 1</button>
+            <small>In your browser's file picker, select one CUE sheet and all BIN files it references. Up to five discs.</small>
+          </div>
 
-          <div class="source-list-wrap" id="source-list-wrap" hidden>
-            <div class="list-caption"><span>SELECTED FILES</span><button type="button" class="text-button" id="clear-sources">Clear</button></div>
-            <ul id="source-list" class="source-list"></ul>
+          <div class="source-list-wrap" id="disc-list-wrap" hidden>
+            <div class="list-caption"><span>DISC ORDER</span><button type="button" class="text-button" id="clear-discs">Clear</button></div>
+            <ol id="disc-list" class="source-list disc-list"></ol>
           </div>
 
           <div class="form-fields">

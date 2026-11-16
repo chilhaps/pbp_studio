@@ -107,16 +107,24 @@ h2 { margin: 0; font: 500 20px/1.2 var(--display); letter-spacing: -.025em; }
 .dropzone small { margin-top: 4px; color: var(--dim); font: 10px var(--mono); }
 .upload-icon { display: grid; width: 35px; height: 35px; margin-bottom: 2px; place-items: center; border-radius: 50%; background: #2a302b; color: var(--green); font-size: 20px; }
 .text-link { color: var(--green); text-decoration: underline; text-underline-offset: 3px; }
+.source-picker { cursor: default; }
+.browse-button { min-height: 34px; padding: 0 13px; border: 1px solid #536044; border-radius: 5px; background: #2c3526; color: var(--green); font: 600 11px var(--sans); cursor: pointer; }
+.browse-button:hover { border-color: var(--green); background: #343f2b; }
+.browse-button:disabled { opacity: .6; cursor: progress; }
 
 .source-list-wrap { margin-top: 15px; }
 .list-caption { display: flex; justify-content: space-between; color: var(--dim); font-size: 9px; }
 .text-button { padding: 0; border: 0; background: none; color: var(--muted); font: 10px var(--mono); cursor: pointer; }
 .source-list { display: grid; gap: 7px; max-height: 135px; margin: 9px 0 0; padding: 0; overflow: auto; list-style: none; }
 .source-item { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 8px 10px; border: 1px solid #303633; border-radius: 6px; background: #171a19; color: #c5ccc6; font-size: 11px; }
-.source-item input { accent-color: var(--green); }
-.file-type { display: grid; width: 30px; height: 22px; flex: 0 0 auto; place-items: center; border-radius: 4px; background: #282e2a; color: var(--green); font: 8px var(--mono); }
+.disc-number { flex: 0 0 auto; color: var(--green); font: 8px var(--mono); }
 .source-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .source-size { margin-left: auto; color: var(--dim); font: 9px var(--mono); white-space: nowrap; }
+.disc-controls { display: inline-flex; gap: 3px; }
+.disc-control { display: grid; width: 22px; height: 22px; padding: 0; place-items: center; border: 1px solid #38413a; border-radius: 4px; background: #202522; color: #c5ccc6; cursor: pointer; }
+.disc-control:hover { border-color: #829e4f; color: var(--green); }
+.disc-control:disabled { opacity: .45; cursor: default; }
+.text-button:disabled { opacity: .45; cursor: default; }
 
 .form-fields { display: grid; grid-template-columns: minmax(0,1fr) minmax(128px,.52fr); gap: 12px; margin-top: 23px; }
 .form-fields label, .compression-field { display: grid; gap: 8px; color: #a1aaa3; }

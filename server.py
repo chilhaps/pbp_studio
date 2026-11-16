@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from pbp_writer import write_pbp
+from cue_sheet import parse_cue, resolve_source_files
+from pbp_writer import MAX_DISCS, write_uploaded_multidisc_pbp
 
 
 ROOT = Path(__file__).resolve().parent
@@ -27,6 +28,14 @@ class Upload:
     path: Path
     name: str
     size: int
+
+
+@dataclass
+class UploadedDisc:
+    cue_path: Path
+    sources: dict[str, Path]
+    name: str
+    track_count: int
 
 
 def _safe_filename(name: str) -> str:
@@ -59,6 +68,44 @@ def _verify_png(data: bytes, kind: str) -> None:
 
 def _json_bytes(value) -> bytes:
     return json.dumps(value, ensure_ascii=False).encode("utf-8")
+
+
+def _resolve_uploaded_disc(source_ids, uploads: dict[str, Upload], uploads_lock) -> UploadedDisc:
+    if not isinstance(source_ids, list) or not source_ids:
+        raise ValueError("Select one CUE sheet and its BIN file(s) for each disc.")
+    if any(not isinstance(asset_id, str) for asset_id in source_ids):
+        raise ValueError("Invalid disc file selection.")
+    if len(set(source_ids)) != len(source_ids):
+        raise ValueError("A disc file was selected more than once.")
+
+    with uploads_lock:
+        selected = [uploads.get(asset_id) for asset_id in source_ids]
+    if any(upload is None for upload in selected):
+        raise ValueError("A disc file upload expired. Select the files again.")
+
+    named_uploads = [(upload, _safe_filename(upload.name)) for upload in selected]
+    names = [name.casefold() for _, name in named_uploads]
+    if len(set(names)) != len(names):
+        raise ValueError("A disc contains files with duplicate names.")
+    cue_uploads = [
+        upload for upload, name in named_uploads if Path(name).suffix.casefold() == ".cue"
+    ]
+    bin_uploads = [
+        upload for upload, name in named_uploads if Path(name).suffix.casefold() == ".bin"
+    ]
+    if len(cue_uploads) != 1 or not bin_uploads or len(named_uploads) != len(cue_uploads) + len(bin_uploads):
+        raise ValueError("Choose exactly one .cue sheet and all of its .bin file(s).")
+
+    cue_upload = cue_uploads[0]
+    sheet = parse_cue(cue_upload.path)
+    uploaded_sources = {upload.name: upload.path for upload in bin_uploads}
+    sources = resolve_source_files(sheet, uploaded_sources)
+    used_names = {name.casefold() for name in sources}
+    selected_names = {upload.name.casefold() for upload in bin_uploads}
+    if used_names != selected_names:
+        raise ValueError("The selection includes a BIN file not referenced by the CUE sheet.")
+
+    return UploadedDisc(cue_upload.path, sources, cue_upload.name, len(sheet.tracks))
 
 
 def _create_handler(token: str, uploads: dict[str, Upload], uploads_lock, staging: Path):
@@ -173,58 +220,96 @@ def _create_handler(token: str, uploads: dict[str, Upload], uploads_lock, stagin
         def do_POST(self):
             if not self._authorize():
                 return
-            if self.path != "/api/convert":
+            if self.path not in ("/api/discs", "/api/convert"):
                 self._send_json(404, {"error": "Not found."})
                 return
             try:
-                length_text = self.headers.get("Content-Length")
-                if not length_text or not length_text.isdigit():
-                    raise ValueError("Missing request length.")
-                length = int(length_text)
-                if length > 1024 * 1024:
-                    raise ValueError("Conversion request is too large.")
-                request = json.loads(self.rfile.read(length))
-                self._convert(request)
+                request = self._read_json_request()
+                if self.path == "/api/discs":
+                    self._validate_disc(request)
+                else:
+                    self._convert(request)
             except (ValueError, KeyError, TypeError, json.JSONDecodeError) as error:
-                self._send_json(400, {"error": str(error) or "Invalid conversion request."})
+                self._send_json(400, {"error": str(error) or "Invalid request."})
             except Exception as error:
                 traceback.print_exc()
-                self._send_json(500, {"error": f"Conversion failed: {error}"})
+                self._send_json(500, {"error": f"Request failed: {error}"})
+
+        def _read_json_request(self):
+            length_text = self.headers.get("Content-Length")
+            if not length_text or not length_text.isdigit():
+                raise ValueError("Missing request length.")
+            length = int(length_text)
+            if length > 1024 * 1024:
+                raise ValueError("Request is too large.")
+            return json.loads(self.rfile.read(length))
+
+        def _validate_disc(self, request):
+            if not isinstance(request, dict):
+                raise ValueError("Invalid disc upload.")
+            disc = _resolve_uploaded_disc(
+                request.get("sourceIds"), uploads, uploads_lock
+            )
+            self._send_json(
+                200,
+                {
+                    "name": disc.name,
+                    "tracks": disc.track_count,
+                    "binCount": len(disc.sources),
+                    "sourceIds": request["sourceIds"],
+                },
+            )
 
         def _convert(self, request):
             if not isinstance(request, dict):
                 raise ValueError("Invalid conversion request.")
             title = request.get("title")
             game_id = request.get("gameId")
-            cue_id = request.get("cueId")
-            source_ids = request.get("sourceIds")
+            disc_selections = request.get("discs")
             image_ids = request.get("images", {})
             compression_level = request.get("compression", 5)
             if not isinstance(title, str) or not isinstance(game_id, str):
                 raise ValueError("Enter a game title and game ID.")
-            if not isinstance(cue_id, str) or not isinstance(source_ids, list):
-                raise ValueError("Select one CUE sheet and its BIN image files.")
-            if cue_id not in source_ids or not source_ids:
-                raise ValueError("The selected CUE sheet is not in the source file list.")
-            if any(not isinstance(asset_id, str) for asset_id in source_ids):
-                raise ValueError("Invalid source file selection.")
+            if (
+                not isinstance(disc_selections, list)
+                or not 1 <= len(disc_selections) <= MAX_DISCS
+            ):
+                raise ValueError("Add between one and five disc uploads.")
             if not isinstance(image_ids, dict):
                 raise ValueError("Invalid image resource selection.")
             if type(compression_level) is not int:
                 raise ValueError("Invalid compression level.")
-            if len(set(source_ids)) != len(source_ids):
-                raise ValueError("A source file was selected more than once.")
+            if any(not isinstance(asset_id, str) for asset_id in image_ids.values()):
+                raise ValueError("Invalid artwork selection.")
             if any(kind not in ("icon", "thumbnail", "background") for kind in image_ids):
                 raise ValueError("Unknown artwork slot.")
 
+            source_groups = []
+            all_source_ids = []
+            for selection in disc_selections:
+                if not isinstance(selection, dict):
+                    raise ValueError("Invalid disc upload.")
+                source_ids = selection.get("sourceIds")
+                if not isinstance(source_ids, list) or not source_ids:
+                    raise ValueError("A disc upload has no source files.")
+                if any(not isinstance(asset_id, str) for asset_id in source_ids):
+                    raise ValueError("Invalid disc file selection.")
+                if len(set(source_ids)) != len(source_ids):
+                    raise ValueError("A disc file was selected more than once.")
+                source_groups.append(source_ids)
+                all_source_ids.extend(source_ids)
+            if len(set(all_source_ids)) != len(all_source_ids):
+                raise ValueError("A source file cannot be used by more than one disc.")
+
+            selected_discs = [
+                _resolve_uploaded_disc(source_ids, uploads, uploads_lock)
+                for source_ids in source_groups
+            ]
             with uploads_lock:
-                selected = {asset_id: uploads.get(asset_id) for asset_id in source_ids}
                 selected_images = {
                     kind: uploads.get(asset_id) if asset_id else None
                     for kind, asset_id in image_ids.items()
                 }
-            if any(upload is None for upload in selected.values()):
-                raise ValueError("A source upload expired. Select the files again.")
             if any(upload is None for upload in selected_images.values()):
                 raise ValueError("An image upload expired. Select the images again.")
 
@@ -236,27 +321,6 @@ def _create_handler(token: str, uploads: dict[str, Upload], uploads_lock, stagin
 
             with tempfile.TemporaryDirectory(prefix="pbp-build-") as directory:
                 work = Path(directory)
-                sources: dict[str, Path] = {}
-                cue_path = None
-                source_names = set()
-                for asset_id, upload in selected.items():
-                    name = _safe_filename(upload.name)
-                    key = name.casefold()
-                    if key in source_names:
-                        raise ValueError(f"More than one selected source file is named {name}.")
-                    source_names.add(key)
-                    if Path(name).suffix.casefold() not in (".cue", ".bin"):
-                        raise ValueError(f"Unsupported source file type: {name}")
-                    destination = work / name
-                    shutil.copyfile(upload.path, destination)
-                    sources[name] = destination
-                    if asset_id == cue_id:
-                        if Path(name).suffix.casefold() != ".cue":
-                            raise ValueError("The selected CUE sheet must end in .cue.")
-                        cue_path = destination
-                if cue_path is None:
-                    raise ValueError("The selected CUE sheet could not be found.")
-
                 images = {}
                 for kind in ("icon", "thumbnail", "background"):
                     image_upload = selected_images.get(kind)
@@ -266,9 +330,8 @@ def _create_handler(token: str, uploads: dict[str, Upload], uploads_lock, stagin
                         images[kind] = data
 
                 output_path = work / "output.pbp"
-                write_pbp(
-                    cue_path,
-                    sources,
+                write_uploaded_multidisc_pbp(
+                    [(disc.cue_path, disc.sources) for disc in selected_discs],
                     output_path,
                     title,
                     game_id,
@@ -305,7 +368,8 @@ def main():
         uploads: dict[str, Upload] = {}
         uploads_lock = threading.Lock()
         server = ThreadingHTTPServer(
-            ("127.0.0.1", 0), _create_handler(token, uploads, uploads_lock, staging)
+            ("127.0.0.1", 0),
+            _create_handler(token, uploads, uploads_lock, staging),
         )
         url = f"http://127.0.0.1:{server.server_port}/"
         print(f"PBP Studio is running at {url}")

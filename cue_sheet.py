@@ -156,6 +156,30 @@ def resolve_source_files(sheet: CueSheet, uploaded: dict[str, Path]) -> dict[str
     return resolved
 
 
+def resolve_sibling_source_files(cue_path: Path, sheet: CueSheet) -> dict[str, Path]:
+    try:
+        siblings = list(cue_path.parent.iterdir())
+    except OSError as error:
+        raise ValueError(f"Could not read the CUE folder: {error}") from error
+
+    sources: dict[str, Path] = {}
+    for cue_file in sheet.files:
+        matches = [
+            path for path in siblings
+            if path.name.casefold() == cue_file.name.casefold()
+        ]
+        if not matches:
+            raise ValueError(f"The CUE sheet references a missing file: {cue_file.name}")
+        if len(matches) > 1:
+            raise ValueError(f"Ambiguous case-insensitive filename in CUE folder: {cue_file.name}")
+        source = matches[0]
+        if not source.is_file():
+            raise ValueError(f"The CUE sheet references a missing file: {cue_file.name}")
+        sources[cue_file.name] = source
+
+    return resolve_source_files(sheet, sources)
+
+
 def image_sector_count(sheet: CueSheet, sources: dict[str, Path]) -> int:
     sectors = 0
     for cue_file in sheet.files:

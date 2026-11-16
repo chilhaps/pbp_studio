@@ -17,6 +17,7 @@ from cue_sheet import (
 )
 from pbp_writer import (
     BLOCK_SIZE,
+    _build_sfo,
     write_multidisc_pbp,
     write_pbp,
     write_uploaded_multidisc_pbp,
@@ -162,6 +163,44 @@ class PbpWriterTests(unittest.TestCase):
         )
         image_path.write_bytes(bytes((fill,)) * (20 * SECTOR_SIZE))
         return cue
+
+    def test_sfo_tables_are_aligned_and_values_use_fixed_slots(self):
+        sfo = _build_sfo("Test Game", "SLUS12345")
+        magic, version, key_start, data_start, count = struct.unpack_from("<4sIIII", sfo)
+
+        self.assertEqual(magic, b"\0PSF")
+        self.assertEqual(version, 0x101)
+        self.assertEqual(data_start % 4, 0)
+
+        values = {}
+        previous_data_end = 0
+        for index in range(count):
+            key_offset, data_type, length, max_length, data_offset = struct.unpack_from(
+                "<HHIII", sfo, 0x14 + index * 0x10
+            )
+            key_start_offset = key_start + key_offset
+            key_end = sfo.index(b"\0", key_start_offset)
+            key = sfo[key_start_offset:key_end].decode("ascii")
+            value_start = data_start + data_offset
+            value = sfo[value_start:value_start + max_length]
+
+            self.assertEqual(data_offset, previous_data_end)
+            self.assertGreaterEqual(max_length, length)
+            self.assertEqual(len(value), max_length)
+            if data_type == 0x0204:
+                self.assertEqual(value[length - 1], 0)
+                values[key] = value[:length - 1].decode("utf-8")
+            else:
+                self.assertEqual(data_type, 0x0404)
+                values[key] = struct.unpack_from("<I", value)[0]
+            previous_data_end = data_offset + max_length
+
+        self.assertEqual(values["CATEGORY"], "ME")
+        self.assertEqual(values["DISC_ID"], "SLUS12345")
+        self.assertEqual(values["TITLE"], "Test Game")
+        self.assertEqual(values["BOOTABLE"], 1)
+        self.assertEqual(values["PARENTAL_LEVEL"], 3)
+        self.assertEqual(values["REGION"], 0x8000)
 
     def test_writes_sections_psar_indexes_and_startdat(self):
         with tempfile.TemporaryDirectory() as temporary:

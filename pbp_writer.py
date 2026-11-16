@@ -92,6 +92,7 @@ def _build_sfo(title: str, disc_id: str) -> bytes:
         key_table.extend(key.encode("ascii") + b"\0")
         data_offset = len(data_table)
         data_table.extend(encoded)
+        data_table.extend(bytes(max_length - len(encoded)))
         entries.append((key_offset, 0x0204, len(encoded), max_length, data_offset))
 
     for key, value in integer_entries:
@@ -101,6 +102,7 @@ def _build_sfo(title: str, disc_id: str) -> bytes:
         data_table.extend(struct.pack("<I", value))
         entries.append((key_offset, 0x0404, 4, 4, data_offset))
 
+    key_table.extend(bytes((-len(key_table)) % 4))
     entries.sort(key=lambda entry: entry[0])
     index_start = 0x14
     key_start = index_start + len(entries) * 0x10

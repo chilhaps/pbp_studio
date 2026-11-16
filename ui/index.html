@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="app-token" content="__APP_TOKEN__">
+  <meta name="theme-color" content="#111313">
+  <title>PBP Studio — PlayStation Classics</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="PBP Studio home">
+      <span class="brand-mark">P</span>
+      <span>PBP<span class="brand-light"> STUDIO</span></span>
+    </a>
+    <div class="local-badge"><span></span> LOCAL WORKSPACE</div>
+  </header>
+
+  <main>
+    <section class="intro">
+      <p class="eyebrow">PLAYSTATION · DISC IMAGE TOOL</p>
+      <h1>Bring your<br><span>classics along.</span></h1>
+      <p class="intro-copy">Turn a CUE/BIN game dump into a ready-to-use EBOOT.PBP. Add original artwork or make it your own.</p>
+    </section>
+
+    <form id="convert-form">
+      <div class="workspace-grid">
+        <section class="panel source-panel" aria-labelledby="source-heading">
+          <div class="panel-heading">
+            <div class="step-number">01</div>
+            <div>
+              <p class="eyebrow">SOURCE DISC</p>
+              <h2 id="source-heading">Choose your game</h2>
+            </div>
+          </div>
+
+          <label class="dropzone" id="source-drop" for="source-files">
+            <input id="source-files" type="file" accept=".cue,.bin,application/octet-stream" multiple>
+            <span class="upload-icon" aria-hidden="true">↑</span>
+            <strong>Drop your CUE and BIN files here</strong>
+            <span>or <span class="text-link">browse files</span></span>
+            <small>Raw 2352-byte sectors · CUE + one or more BIN files</small>
+          </label>
+
+          <div class="source-list-wrap" id="source-list-wrap" hidden>
+            <div class="list-caption"><span>SELECTED FILES</span><button type="button" class="text-button" id="clear-sources">Clear</button></div>
+            <ul id="source-list" class="source-list"></ul>
+          </div>
+
+          <div class="form-fields">
+            <label>
+              <span>GAME TITLE</span>
+              <input id="game-title" name="title" type="text" maxlength="127" placeholder="e.g. Final Fantasy VII" required>
+            </label>
+            <label>
+              <span>GAME ID</span>
+              <input id="game-id" name="gameId" type="text" maxlength="10" value="SLUS-00000" spellcheck="false" required>
+            </label>
+          </div>
+
+          <label class="compression-field">
+            <span>COMPRESSION</span>
+            <select id="compression" name="compression">
+              <option value="1">Faster · larger file</option>
+              <option value="3">Balanced</option>
+              <option value="5" selected>Recommended</option>
+              <option value="7">Smaller · slower</option>
+              <option value="9">Smallest · slowest</option>
+            </select>
+          </label>
+        </section>
+
+        <section class="panel artwork-panel" aria-labelledby="artwork-heading">
+          <div class="panel-heading">
+            <div class="step-number">02</div>
+            <div>
+              <p class="eyebrow">PERSONALIZE</p>
+              <h2 id="artwork-heading">Add your artwork</h2>
+            </div>
+            <span class="optional-tag">OPTIONAL</span>
+          </div>
+          <p class="section-hint">Choose an image, drop it in, or copy and paste artwork into an active frame.</p>
+
+          <div class="artwork-slots">
+            <article class="art-slot" data-slot="icon">
+              <div class="art-preview icon-preview" id="preview-icon">
+                <span class="preview-placeholder">ICON</span>
+                <canvas class="art-canvas" width="80" height="80" aria-label="Game icon preview" hidden></canvas>
+                <button class="remove-image" type="button" aria-label="Remove icon image" hidden>×</button>
+              </div>
+              <div class="art-details">
+                <div class="art-title"><strong>Game icon</strong><span>80 × 80</span></div>
+                <div class="art-actions">
+                  <label class="mini-button" for="image-icon">Choose</label>
+                  <input id="image-icon" class="image-input" type="file" accept="image/*">
+                  <button class="mini-button paste-button" type="button" data-paste="icon">Paste</button>
+                </div>
+                <small class="image-name" id="name-icon">Drop image here</small>
+                <div class="image-adjust" id="adjust-icon" hidden>
+                  <div class="image-modes" role="group" aria-label="Icon image sizing">
+                    <button class="mode-button" type="button" data-mode="crop" aria-pressed="false">Crop</button>
+                    <button class="mode-button" type="button" data-mode="fit" aria-pressed="true">Fit</button>
+                  </div>
+                  <label class="zoom-control">ZOOM<input class="zoom-slider" type="range" min="100" max="300" value="100" disabled></label>
+                  <small class="adjust-hint">Drag the preview to reposition when cropping.</small>
+                </div>
+              </div>
+            </article>
+
+            <article class="art-slot" data-slot="thumbnail">
+              <div class="art-preview thumb-preview" id="preview-thumbnail">
+                <span class="preview-placeholder">THUMBNAIL</span>
+                <canvas class="art-canvas" width="310" height="180" aria-label="Thumbnail preview" hidden></canvas>
+                <button class="remove-image" type="button" aria-label="Remove thumbnail image" hidden>×</button>
+              </div>
+              <div class="art-details">
+                <div class="art-title"><strong>Thumbnail</strong><span>310 × 180</span></div>
+                <div class="art-actions">
+                  <label class="mini-button" for="image-thumbnail">Choose</label>
+                  <input id="image-thumbnail" class="image-input" type="file" accept="image/*">
+                  <button class="mini-button paste-button" type="button" data-paste="thumbnail">Paste</button>
+                </div>
+                <small class="image-name" id="name-thumbnail">Drop image here</small>
+                <div class="image-adjust" id="adjust-thumbnail" hidden>
+                  <div class="image-modes" role="group" aria-label="Thumbnail image sizing">
+                    <button class="mode-button" type="button" data-mode="crop" aria-pressed="true">Crop</button>
+                    <button class="mode-button" type="button" data-mode="fit" aria-pressed="false">Fit</button>
+                  </div>
+                  <label class="zoom-control">ZOOM<input class="zoom-slider" type="range" min="100" max="300" value="100"></label>
+                  <small class="adjust-hint">Drag the preview to reposition when cropping.</small>
+                </div>
+              </div>
+            </article>
+
+            <article class="art-slot" data-slot="background">
+              <div class="art-preview background-preview" id="preview-background">
+                <span class="preview-placeholder">BACKGROUND</span>
+                <canvas class="art-canvas" width="480" height="272" aria-label="Background preview" hidden></canvas>
+                <button class="remove-image" type="button" aria-label="Remove background image" hidden>×</button>
+              </div>
+              <div class="art-details">
+                <div class="art-title"><strong>Background</strong><span>480 × 272</span></div>
+                <div class="art-actions">
+                  <label class="mini-button" for="image-background">Choose</label>
+                  <input id="image-background" class="image-input" type="file" accept="image/*">
+                  <button class="mini-button paste-button" type="button" data-paste="background">Paste</button>
+                </div>
+                <small class="image-name" id="name-background">Drop image here</small>
+                <div class="image-adjust" id="adjust-background" hidden>
+                  <div class="image-modes" role="group" aria-label="Background image sizing">
+                    <button class="mode-button" type="button" data-mode="crop" aria-pressed="true">Crop</button>
+                    <button class="mode-button" type="button" data-mode="fit" aria-pressed="false">Fit</button>
+                  </div>
+                  <label class="zoom-control">ZOOM<input class="zoom-slider" type="range" min="100" max="300" value="100"></label>
+                  <small class="adjust-hint">Drag the preview to reposition when cropping.</small>
+                </div>
+              </div>
+            </article>
+          </div>
+          <p class="artwork-note">Choose Crop to fill the frame or Fit to keep the whole image. Drag to reposition a crop and use zoom to adjust it. Original image files are not modified.</p>
+        </section>
+      </div>
+
+      <section class="action-row">
+        <div class="privacy-note"><span class="lock-icon" aria-hidden="true">◇</span><span><strong>Private by design</strong><br>Files never leave this computer. Processing is local.</span></div>
+        <button id="convert-button" class="convert-button" type="submit"><span>Build EBOOT.PBP</span><span aria-hidden="true">↗</span></button>
+      </section>
+      <div class="status-message" id="status-message" role="status" aria-live="polite"></div>
+    </form>
+
+    <footer>
+      <span>PBP STUDIO <span class="footer-divider">/</span> RUNS LOCALLY IN YOUR BROWSER</span>
+      <span>For personal backups of games you own.</span>
+    </footer>
+  </main>
+</body>
+</html>

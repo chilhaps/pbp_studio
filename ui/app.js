@@ -11,8 +11,23 @@
   const status = document.getElementById("status-message");
   const convertButton = document.getElementById("convert-button");
   const artwork = { icon: null, thumbnail: null, background: null };
+  const artworkLabels = { icon: "game cover", thumbnail: "logo", background: "background" };
   let discs = [];
   let busy = false;
+  const previewWidth = 384;
+  const previewHeight = 216;
+  const popfeArtworkWidth = 382;
+  const artworkPreview = document.getElementById("artwork-preview");
+  const previewContext = artworkPreview.getContext("2d");
+  const composedBackground = document.createElement("canvas");
+  composedBackground.width = 480;
+  composedBackground.height = 272;
+  const composedBackgroundContext = composedBackground.getContext("2d");
+  const logoPosition = { x: 148, y: 79 };
+  const logoPreviewWidth = Math.trunc(popfeArtworkWidth * 0.55);
+  const logoPreviewHeight = Math.trunc(previewHeight * 0.58);
+  const coverPreviewSize = Math.trunc(previewHeight * 0.25);
+  let logoDrag = null;
   const artworkDimensions = {
     icon: { width: 80, height: 80, mode: "fit" },
     thumbnail: { width: 310, height: 180, mode: "crop" },
@@ -169,7 +184,7 @@
     };
     image.onerror = () => {
       if (artwork[slot] !== state) return;
-      setStatus(`Could not read the ${slot} image. Try another image format.`, "error");
+      setStatus(`Could not read the ${artworkLabels[slot]} image. Try another image format.`, "error");
       document.querySelector(`[data-slot="${slot}"]`).querySelector(".remove-image").click();
     };
     image.src = previewUrl;
@@ -199,7 +214,96 @@
     const drawY = -overflowY * state.positionY / 100;
     context.clearRect(0, 0, width, height);
     context.drawImage(state.image, drawX, drawY, drawWidth, drawHeight);
+    drawArtworkPreview();
   }
+
+  function drawComposedBackground() {
+    composedBackgroundContext.clearRect(0, 0, composedBackground.width, composedBackground.height);
+    const background = artwork.background;
+    if (background?.image.complete && background.image.naturalWidth) {
+      composedBackgroundContext.drawImage(
+        document.querySelector("#preview-background canvas"),
+        0,
+        0,
+        composedBackground.width,
+        composedBackground.height,
+      );
+    }
+
+    const logo = artwork.thumbnail;
+    if (logo?.image.complete && logo.image.naturalWidth) {
+      composedBackgroundContext.drawImage(
+        document.querySelector("#preview-thumbnail canvas"),
+        logoPosition.x * composedBackground.width / previewWidth,
+        logoPosition.y * composedBackground.height / previewHeight,
+        logoPreviewWidth * composedBackground.width / previewWidth,
+        logoPreviewHeight * composedBackground.height / previewHeight,
+      );
+    }
+  }
+
+  function drawArtworkPreview() {
+    drawComposedBackground();
+    previewContext.clearRect(0, 0, artworkPreview.width, artworkPreview.height);
+    previewContext.fillStyle = "#fff";
+    previewContext.fillRect(0, 0, artworkPreview.width, artworkPreview.height);
+    previewContext.drawImage(composedBackground, 0, 0, previewWidth, previewHeight);
+
+    const cover = artwork.icon;
+    if (cover?.image.complete && cover.image.naturalWidth) {
+      previewContext.drawImage(
+        document.querySelector("#preview-icon canvas"),
+        36,
+        81,
+        coverPreviewSize,
+        coverPreviewSize,
+      );
+    }
+    artworkPreview.classList.toggle("has-logo", Boolean(artwork.thumbnail));
+  }
+
+  function previewPoint(event) {
+    const bounds = artworkPreview.getBoundingClientRect();
+    return {
+      x: (event.clientX - bounds.left) * previewWidth / bounds.width,
+      y: (event.clientY - bounds.top) * previewHeight / bounds.height,
+    };
+  }
+
+  artworkPreview.addEventListener("pointerdown", (event) => {
+    if (!artwork.thumbnail) return;
+    const point = previewPoint(event);
+    if (
+      point.x < logoPosition.x
+      || point.x > logoPosition.x + logoPreviewWidth
+      || point.y < logoPosition.y
+      || point.y > logoPosition.y + logoPreviewHeight
+    ) return;
+    logoDrag = { offsetX: point.x - logoPosition.x, offsetY: point.y - logoPosition.y };
+    artworkPreview.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+  artworkPreview.addEventListener("pointermove", (event) => {
+    if (!logoDrag) return;
+    const point = previewPoint(event);
+    logoPosition.x = Math.max(0, Math.min(previewWidth - logoPreviewWidth, point.x - logoDrag.offsetX));
+    logoPosition.y = Math.max(0, Math.min(previewHeight - logoPreviewHeight, point.y - logoDrag.offsetY));
+    drawArtworkPreview();
+  });
+  artworkPreview.addEventListener("pointerup", () => { logoDrag = null; });
+  artworkPreview.addEventListener("pointercancel", () => { logoDrag = null; });
+  artworkPreview.addEventListener("keydown", (event) => {
+    if (!artwork.thumbnail || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+    const step = event.shiftKey ? 10 : 1;
+    if (event.key === "ArrowLeft") logoPosition.x -= step;
+    if (event.key === "ArrowRight") logoPosition.x += step;
+    if (event.key === "ArrowUp") logoPosition.y -= step;
+    if (event.key === "ArrowDown") logoPosition.y += step;
+    logoPosition.x = Math.max(0, Math.min(previewWidth - logoPreviewWidth, logoPosition.x));
+    logoPosition.y = Math.max(0, Math.min(previewHeight - logoPreviewHeight, logoPosition.y));
+    drawArtworkPreview();
+    event.preventDefault();
+  });
 
   function updateArtworkControls(slot) {
     const state = artwork[slot];
@@ -250,11 +354,12 @@
       document.getElementById(`adjust-${slot}`).hidden = true;
       document.getElementById(`name-${slot}`).textContent = "Drop image here";
       card.classList.remove("is-active");
+      drawArtworkPreview();
     });
     card.querySelector(".paste-button").addEventListener("click", () => {
       activeSlot = slot;
       card.classList.add("is-active");
-      setStatus(`Copy an image, then press Ctrl+V / ⌘V to paste it as the ${slot}.`);
+      setStatus(`Copy an image, then press Ctrl+V / ⌘V to paste it as the ${artworkLabels[slot]}.`);
     });
 
     for (const button of card.querySelectorAll(".mode-button")) {
@@ -326,16 +431,23 @@
 
   function toPng(slot) {
     const canvas = document.querySelector(`#preview-${slot} canvas`);
+    const name = slot === "icon" ? "game-cover.png" : slot === "thumbnail" ? "logo.png" : "background.png";
+    return canvasToPng(canvas, name);
+  }
+
+  function canvasToPng(canvas, name) {
     return new Promise((resolve, reject) => {
       canvas.toBlob((blob) => {
         if (!blob) {
-          reject(new Error(`Could not prepare the ${slot} image.`));
+          reject(new Error(`Could not prepare ${name}.`));
           return;
         }
-        resolve(new File([blob], `${slot}.png`, { type: "image/png" }));
+        resolve(new File([blob], name, { type: "image/png" }));
       }, "image/png");
     });
   }
+
+  drawArtworkPreview();
 
   document.getElementById("convert-form").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -359,11 +471,16 @@
     try {
       const selectedDiscs = discs.map((disc) => ({ sourceIds: disc.sourceIds }));
       const uploadedImages = {};
-      for (const slot of Object.keys(artwork)) {
+      for (const slot of ["icon", "thumbnail"]) {
         if (!artwork[slot]) continue;
-        setStatus(`Preparing ${slot}…`);
+        setStatus(`Preparing ${artworkLabels[slot]}…`);
         const png = await toPng(slot);
         uploadedImages[slot] = (await upload(png, png.name)).id;
+      }
+      if (artwork.background || artwork.thumbnail) {
+        setStatus("Preparing PSP background…");
+        const png = await canvasToPng(composedBackground, "background.png");
+        uploadedImages.background = (await upload(png, png.name)).id;
       }
       setStatus("Building EBOOT.PBP — large games may take a few minutes.");
       const response = await fetch("/api/convert", {
@@ -374,7 +491,6 @@
           gameId: document.getElementById("game-id").value,
           discs: selectedDiscs,
           images: uploadedImages,
-          compression: Number(document.getElementById("compression").value),
         }),
       });
       if (!response.ok) {

@@ -17,10 +17,10 @@ PBP Studio opens a browser tab and serves its interface on a temporary loopback-
 
 1. Use **Add Disc** to select one `.cue` sheet and all `.bin` files it references in your browser's file picker. Each disc is uploaded and validated before you add the next one.
 2. Add discs in sequence, then use the up/down controls to set disc order. Enter a game title and a nine-character ID (four letters and five digits, such as `SLUS-12345`).
-3. Optionally add an icon, thumbnail, and background by choosing an image, dropping it onto a frame, or copying an image and using Paste (then press Ctrl+V / Cmd+V).
-4. Choose a compression level and build the PBP. The browser downloads the finished file.
+3. Optionally add a game cover, logo, and background by choosing an image, dropping it onto a frame, or copying an image and using Paste (then press Ctrl+V / Cmd+V).
+4. Build the PBP using the recommended compression setting. The browser downloads the finished file.
 
-Artwork is normalized to the PBP dimensions: icon 80 × 80, thumbnail 310 × 180, and background 480 × 272. For each image, choose **Crop** to fill the frame or **Fit** to keep the entire image (with transparent padding as needed). In Crop mode, drag the preview to reposition the image and use the zoom slider to adjust the crop. Original image files are not modified.
+Artwork is normalized to the PBP dimensions: game cover 80 × 80, logo 310 × 180, and background 480 × 272. The 384 × 216 live preview follows pop-fe-psp's composition: the background fills the frame, the logo overlays near the center, and the game cover appears as a 54 × 54 icon near the left. Drag the logo to reposition it; its placement is included in the exported background. For each image, choose **Crop** to fill the frame or **Fit** to keep the entire image (with transparent padding as needed). In Crop mode, drag the small image preview to reposition the crop and use the zoom slider to adjust it. Original image files are not modified.
 
 ## Input support and limitations
 

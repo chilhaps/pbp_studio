@@ -60,16 +60,6 @@
             </label>
           </div>
 
-          <label class="compression-field">
-            <span>COMPRESSION</span>
-            <select id="compression" name="compression">
-              <option value="1">Faster · larger file</option>
-              <option value="3">Balanced</option>
-              <option value="5" selected>Recommended</option>
-              <option value="7">Smaller · slower</option>
-              <option value="9">Smallest · slowest</option>
-            </select>
-          </label>
         </section>
 
         <section class="panel artwork-panel" aria-labelledby="artwork-heading">
@@ -83,15 +73,31 @@
           </div>
           <p class="section-hint">Choose an image, drop it in, or copy and paste artwork into an active frame.</p>
 
+          <div class="artwork-preview-panel">
+            <div class="artwork-preview-heading">
+              <strong>Artwork preview</strong>
+              <small id="artwork-preview-hint">Drag the logo to reposition it; the placement is included in the exported background.</small>
+            </div>
+            <canvas
+              id="artwork-preview"
+              width="384"
+              height="216"
+              role="img"
+              aria-label="Composed game artwork preview"
+              aria-describedby="artwork-preview-hint"
+              tabindex="0"
+            ></canvas>
+          </div>
+
           <div class="artwork-slots">
             <article class="art-slot" data-slot="icon">
               <div class="art-preview icon-preview" id="preview-icon">
-                <span class="preview-placeholder">ICON</span>
-                <canvas class="art-canvas" width="80" height="80" aria-label="Game icon preview" hidden></canvas>
-                <button class="remove-image" type="button" aria-label="Remove icon image" hidden>×</button>
+                <span class="preview-placeholder">COVER</span>
+                <canvas class="art-canvas" width="80" height="80" aria-label="Game cover preview" hidden></canvas>
+                <button class="remove-image" type="button" aria-label="Remove game cover image" hidden>×</button>
               </div>
               <div class="art-details">
-                <div class="art-title"><strong>Game icon</strong><span>80 × 80</span></div>
+                <div class="art-title"><strong>Game cover</strong><span>80 × 80</span></div>
                 <div class="art-actions">
                   <label class="mini-button" for="image-icon">Choose</label>
                   <input id="image-icon" class="image-input" type="file" accept="image/*">
@@ -99,7 +105,7 @@
                 </div>
                 <small class="image-name" id="name-icon">Drop image here</small>
                 <div class="image-adjust" id="adjust-icon" hidden>
-                  <div class="image-modes" role="group" aria-label="Icon image sizing">
+                  <div class="image-modes" role="group" aria-label="Game cover image sizing">
                     <button class="mode-button" type="button" data-mode="crop" aria-pressed="false">Crop</button>
                     <button class="mode-button" type="button" data-mode="fit" aria-pressed="true">Fit</button>
                   </div>
@@ -111,12 +117,12 @@
 
             <article class="art-slot" data-slot="thumbnail">
               <div class="art-preview thumb-preview" id="preview-thumbnail">
-                <span class="preview-placeholder">THUMBNAIL</span>
-                <canvas class="art-canvas" width="310" height="180" aria-label="Thumbnail preview" hidden></canvas>
-                <button class="remove-image" type="button" aria-label="Remove thumbnail image" hidden>×</button>
+                <span class="preview-placeholder">LOGO</span>
+                <canvas class="art-canvas" width="310" height="180" aria-label="Logo preview" hidden></canvas>
+                <button class="remove-image" type="button" aria-label="Remove logo image" hidden>×</button>
               </div>
               <div class="art-details">
-                <div class="art-title"><strong>Thumbnail</strong><span>310 × 180</span></div>
+                <div class="art-title"><strong>Logo</strong><span>310 × 180</span></div>
                 <div class="art-actions">
                   <label class="mini-button" for="image-thumbnail">Choose</label>
                   <input id="image-thumbnail" class="image-input" type="file" accept="image/*">
@@ -124,7 +130,7 @@
                 </div>
                 <small class="image-name" id="name-thumbnail">Drop image here</small>
                 <div class="image-adjust" id="adjust-thumbnail" hidden>
-                  <div class="image-modes" role="group" aria-label="Thumbnail image sizing">
+                  <div class="image-modes" role="group" aria-label="Logo image sizing">
                     <button class="mode-button" type="button" data-mode="crop" aria-pressed="true">Crop</button>
                     <button class="mode-button" type="button" data-mode="fit" aria-pressed="false">Fit</button>
                   </div>
@@ -159,7 +165,7 @@
               </div>
             </article>
           </div>
-          <p class="artwork-note">Choose Crop to fill the frame or Fit to keep the whole image. Drag to reposition a crop and use zoom to adjust it. Original image files are not modified.</p>
+          <p class="artwork-note">Choose Crop to fill the image frame or Fit to keep the whole image. Drag inside the small image preview to adjust its crop; drag the logo in the artwork preview to move it. Original image files are not modified.</p>
         </section>
       </div>
 

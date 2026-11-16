@@ -13,7 +13,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from cue_sheet import parse_cue, resolve_source_files
-from pbp_writer import MAX_DISCS, write_uploaded_multidisc_pbp
+from pbp_writer import (
+    MAX_DISCS,
+    RECOMMENDED_COMPRESSION_LEVEL,
+    write_uploaded_multidisc_pbp,
+)
 
 
 ROOT = Path(__file__).resolve().parent
@@ -21,6 +25,11 @@ UI_DIR = ROOT / "ui"
 MAX_UPLOAD_SIZE = 8 * 1024**3
 MAX_IMAGE_SIZE = 20 * 1024**2
 UPLOAD_CHUNK = 1024 * 1024
+ARTWORK_LABELS = {
+    "icon": "Game cover",
+    "thumbnail": "Logo",
+    "background": "Background",
+}
 
 
 @dataclass
@@ -57,13 +66,15 @@ def _verify_png(data: bytes, kind: str) -> None:
         "background": (480, 272),
     }
     if len(data) > MAX_IMAGE_SIZE or len(data) < 24:
-        raise ValueError(f"{kind.title()} PNG must be between 24 bytes and 20 MB.")
+        raise ValueError(f"{ARTWORK_LABELS[kind]} PNG must be between 24 bytes and 20 MB.")
     if data[:8] != b"\x89PNG\r\n\x1a\n" or data[12:16] != b"IHDR":
-        raise ValueError(f"{kind.title()} must be a PNG image.")
+        raise ValueError(f"{ARTWORK_LABELS[kind]} must be a PNG image.")
     actual = (int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big"))
     if actual != dimensions[kind]:
         width, height = dimensions[kind]
-        raise ValueError(f"{kind.title()} must be resized to {width} x {height} pixels.")
+        raise ValueError(
+            f"{ARTWORK_LABELS[kind]} must be resized to {width} x {height} pixels."
+        )
 
 
 def _json_bytes(value) -> bytes:
@@ -267,7 +278,6 @@ def _create_handler(token: str, uploads: dict[str, Upload], uploads_lock, stagin
             game_id = request.get("gameId")
             disc_selections = request.get("discs")
             image_ids = request.get("images", {})
-            compression_level = request.get("compression", 5)
             if not isinstance(title, str) or not isinstance(game_id, str):
                 raise ValueError("Enter a game title and game ID.")
             if (
@@ -277,8 +287,6 @@ def _create_handler(token: str, uploads: dict[str, Upload], uploads_lock, stagin
                 raise ValueError("Add between one and five disc uploads.")
             if not isinstance(image_ids, dict):
                 raise ValueError("Invalid image resource selection.")
-            if type(compression_level) is not int:
-                raise ValueError("Invalid compression level.")
             if any(not isinstance(asset_id, str) for asset_id in image_ids.values()):
                 raise ValueError("Invalid artwork selection.")
             if any(kind not in ("icon", "thumbnail", "background") for kind in image_ids):
@@ -317,7 +325,9 @@ def _create_handler(token: str, uploads: dict[str, Upload], uploads_lock, stagin
                 image_upload = selected_images.get(kind)
                 if image_upload:
                     if image_upload.size > MAX_IMAGE_SIZE:
-                        raise ValueError(f"{kind.title()} PNG must be smaller than 20 MB.")
+                        raise ValueError(
+                            f"{ARTWORK_LABELS[kind]} PNG must be smaller than 20 MB."
+                        )
 
             with tempfile.TemporaryDirectory(prefix="pbp-build-") as directory:
                 work = Path(directory)
@@ -336,7 +346,7 @@ def _create_handler(token: str, uploads: dict[str, Upload], uploads_lock, stagin
                     title,
                     game_id,
                     images,
-                    compression_level,
+                    RECOMMENDED_COMPRESSION_LEVEL,
                 )
                 self._send_pbp(output_path, _safe_output_name(title))
 

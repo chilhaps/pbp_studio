@@ -21,6 +21,7 @@ PSAR_IMAGE_OFFSET = 0x100000
 INDEX_OFFSET = 0x4000
 MAX_INDEXES = 0x7E00
 MAX_DISCS = 5
+RECOMMENDED_COMPRESSION_LEVEL = 5
 ASSET_DIR = Path(__file__).resolve().parent / "assets"
 
 
@@ -268,7 +269,7 @@ def write_pbp(
     title: str,
     game_id: str,
     images: dict[str, bytes],
-    compression_level: int = 5,
+    compression_level: int = RECOMMENDED_COMPRESSION_LEVEL,
 ) -> None:
     title = title.strip()
     if not title:
@@ -313,7 +314,7 @@ def write_multidisc_pbp(
     title: str,
     game_id: str,
     images: dict[str, bytes],
-    compression_level: int = 5,
+    compression_level: int = RECOMMENDED_COMPRESSION_LEVEL,
 ) -> None:
     title = title.strip()
     if not title:
@@ -348,7 +349,7 @@ def write_uploaded_multidisc_pbp(
     title: str,
     game_id: str,
     images: dict[str, bytes],
-    compression_level: int = 5,
+    compression_level: int = RECOMMENDED_COMPRESSION_LEVEL,
 ) -> None:
     title = title.strip()
     if not title:

@@ -7,7 +7,7 @@ A standalone, local GUI for converting PlayStation 1 `.cue`/`.bin` disc dumps to
 Requires Python 3.10 or later and a current desktop browser. There are no Python package dependencies.
 
 ```sh
-cd pbp_tool
+cd pbp_studio
 python3 app.py
 ```
 

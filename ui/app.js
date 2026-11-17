@@ -229,6 +229,30 @@
     setStatus("");
   }
 
+  async function pasteArtwork(slot) {
+    activeSlot = slot;
+    document.querySelector(`[data-slot="${slot}"]`).classList.add("is-active");
+    if (!navigator.clipboard?.read) {
+      setStatus("This browser does not support pasting images from the clipboard.", "error");
+      return;
+    }
+
+    setStatus(`Reading the ${artworkLabels[slot]} from the clipboard…`);
+    try {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        const type = item.types.find((itemType) => itemType.startsWith("image/"));
+        if (!type) continue;
+        const blob = await item.getType(type);
+        setArtwork(slot, new File([blob], `pasted-${slot}`, { type: blob.type || type }));
+        return;
+      }
+      setStatus("The clipboard does not contain an image.", "error");
+    } catch (error) {
+      setStatus(error instanceof Error ? `Could not read the clipboard: ${error.message}` : "Could not read the clipboard.", "error");
+    }
+  }
+
   function drawArtwork(slot) {
     const state = artwork[slot];
     if (!state?.image.complete || !state.image.naturalWidth) return;
@@ -409,11 +433,7 @@
       card.classList.remove("is-active");
       drawArtworkPreview();
     });
-    card.querySelector(".paste-button").addEventListener("click", () => {
-      activeSlot = slot;
-      card.classList.add("is-active");
-      setStatus(`Copy an image, then press Ctrl+V / ⌘V to paste it as the ${artworkLabels[slot]}.`);
-    });
+    card.querySelector(".paste-button").addEventListener("click", () => pasteArtwork(slot));
 
     for (const button of card.querySelectorAll(".mode-button")) {
       button.addEventListener("click", () => {

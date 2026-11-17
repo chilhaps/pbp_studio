@@ -167,6 +167,13 @@ h2 { margin: 0; font: 500 20px/1.2 var(--display); letter-spacing: -.025em; }
 .mini-button { display: inline-grid; min-width: 58px; height: 27px; padding: 0 9px; place-items: center; border: 1px solid #3c453f; border-radius: 4px; background: #222725; color: #d3d9d3; font: 10px var(--sans); cursor: pointer; }
 .mini-button:hover { border-color: #829e4f; color: var(--green); }
 .image-name { display: block; min-width: 0; margin-top: 8px; overflow: hidden; color: var(--dim); font: 9px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.snd0-upload { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 5px 12px; margin-top: 10px; padding: 12px; border: 1px solid #303633; border-radius: 8px; background: rgba(12,14,13,.30); }
+.snd0-upload > div:first-child { display: grid; gap: 3px; }
+.snd0-upload strong { color: #d3d9d3; font-size: 11px; }
+.snd0-upload small { color: var(--dim); font-size: 9px; }
+.snd0-actions { display: flex; gap: 7px; }
+.snd0-upload .image-name { grid-column: 1 / -1; margin-top: 0; }
+.snd0-upload button[hidden] { display: none; }
 .image-adjust { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-top: 10px; }
 .image-modes { display: inline-flex; padding: 2px; border: 1px solid #3b443e; border-radius: 5px; background: #171a19; }
 .mode-button { padding: 4px 8px; border: 0; border-radius: 3px; background: transparent; color: #a3ada5; font: 9px var(--mono); cursor: pointer; }

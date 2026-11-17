@@ -10,9 +10,13 @@
   const titleInput = document.getElementById("game-title");
   const status = document.getElementById("status-message");
   const convertButton = document.getElementById("convert-button");
+  const snd0Input = document.getElementById("snd0-file");
+  const snd0Name = document.getElementById("name-snd0");
+  const removeSnd0Button = document.getElementById("remove-snd0");
   const artwork = { icon: null, thumbnail: null, background: null };
   const artworkLabels = { icon: "game cover", thumbnail: "logo", background: "background" };
   let discs = [];
+  let snd0File = null;
   let busy = false;
   const previewWidth = 384;
   const previewHeight = 216;
@@ -37,6 +41,32 @@
     background: { width: 480, height: 272, mode: "crop" },
   };
   let activeSlot = "icon";
+
+  snd0Input.addEventListener("change", () => {
+    const file = snd0Input.files[0];
+    snd0Input.value = "";
+    if (!file) return;
+    if (!/\.(?:at3|snd0)$/i.test(file.name)) {
+      setStatus("Choose an .AT3 or .SND0 audio file.", "error");
+      return;
+    }
+    if (file.size > 64 * 1024 * 1024) {
+      setStatus("SND0 audio must be no larger than 64 MB.", "error");
+      return;
+    }
+    snd0File = file;
+    snd0Name.textContent = file.name;
+    snd0Name.title = file.name;
+    removeSnd0Button.hidden = false;
+    setStatus("");
+  });
+
+  removeSnd0Button.addEventListener("click", () => {
+    snd0File = null;
+    snd0Name.textContent = "No audio selected";
+    snd0Name.removeAttribute("title");
+    removeSnd0Button.hidden = true;
+  });
 
   function setStatus(message, kind = "") {
     status.textContent = message;
@@ -494,6 +524,7 @@
     try {
       const selectedDiscs = discs.map((disc) => ({ sourceIds: disc.sourceIds }));
       const uploadedImages = {};
+      let snd0Id = null;
       for (const slot of ["icon", "thumbnail"]) {
         if (!artwork[slot]) continue;
         setStatus(`Preparing ${artworkLabels[slot]}…`);
@@ -505,6 +536,10 @@
         const png = await canvasToPng(composedBackground, "background.png");
         uploadedImages.background = (await upload(png, png.name)).id;
       }
+      if (snd0File) {
+        setStatus("Preparing optional XMB audio…");
+        snd0Id = (await upload(snd0File)).id;
+      }
       setStatus("Building EBOOT.PBP — large games may take a few minutes.");
       const response = await fetch("/api/convert", {
         method: "POST",
@@ -514,6 +549,7 @@
           gameId: document.getElementById("game-id").value,
           discs: selectedDiscs,
           images: uploadedImages,
+          snd0: snd0Id,
         }),
       });
       if (!response.ok) {

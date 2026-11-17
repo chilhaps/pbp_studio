@@ -16,13 +16,19 @@ from cue_sheet import (
     track_start_sectors,
 )
 from pbp_writer import (
+    ASSET_DIR,
     BLOCK_SIZE,
+    DEFAULT_PSP_CONFIG,
+    PSP_CONFIG_MAP,
+    PSP_CONFIG_OVERRIDES,
     _build_sfo,
+    _encode_psar_block,
+    _psp_config_for_id,
     write_multidisc_pbp,
     write_pbp,
     write_uploaded_multidisc_pbp,
 )
-from server import Upload, _resolve_uploaded_disc
+from server import Upload, _resolve_uploaded_disc, _resolve_uploaded_snd0
 
 
 class CueSheetTests(unittest.TestCase):
@@ -148,6 +154,29 @@ class UploadedDiscTests(unittest.TestCase):
                     ["cue-id", "bin-id", "second-cue-id"], uploads, threading.Lock()
                 )
 
+    def test_resolves_optional_snd0_upload_and_rejects_other_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "music.upload"
+            path.write_bytes(b"sample soundtrack")
+            oversized_path = Path(temporary) / "large.upload"
+            oversized_path.write_bytes(b"")
+            uploads = {
+                "snd0-id": Upload(path, "music.AT3", path.stat().st_size),
+                "other-id": Upload(path, "cover.png", path.stat().st_size),
+                "large-id": Upload(oversized_path, "large.snd0", 64 * 1024**2 + 1),
+            }
+
+            upload = _resolve_uploaded_snd0("snd0-id", uploads, threading.Lock())
+
+            self.assertEqual(upload.name, "music.AT3")
+            self.assertIsNone(_resolve_uploaded_snd0(None, uploads, threading.Lock()))
+            with self.assertRaisesRegex(ValueError, "AT3 or .SND0"):
+                _resolve_uploaded_snd0("other-id", uploads, threading.Lock())
+            with self.assertRaisesRegex(ValueError, "64 MB"):
+                _resolve_uploaded_snd0("large-id", uploads, threading.Lock())
+            with self.assertRaisesRegex(ValueError, "expired"):
+                _resolve_uploaded_snd0("missing-id", uploads, threading.Lock())
+
 
 class PbpWriterTests(unittest.TestCase):
     def _create_disc(self, root: Path, folder: str, fill: int) -> Path:
@@ -173,6 +202,7 @@ class PbpWriterTests(unittest.TestCase):
         self.assertEqual(data_start % 4, 0)
 
         values = {}
+        keys = []
         previous_data_end = 0
         for index in range(count):
             key_offset, data_type, length, max_length, data_offset = struct.unpack_from(
@@ -181,6 +211,7 @@ class PbpWriterTests(unittest.TestCase):
             key_start_offset = key_start + key_offset
             key_end = sfo.index(b"\0", key_start_offset)
             key = sfo[key_start_offset:key_end].decode("ascii")
+            keys.append(key)
             value_start = data_start + data_offset
             value = sfo[value_start:value_start + max_length]
 
@@ -201,6 +232,20 @@ class PbpWriterTests(unittest.TestCase):
         self.assertEqual(values["BOOTABLE"], 1)
         self.assertEqual(values["PARENTAL_LEVEL"], 3)
         self.assertEqual(values["REGION"], 0x8000)
+        self.assertEqual(
+            keys,
+            [
+                "BOOTABLE",
+                "CATEGORY",
+                "DISC_ID",
+                "DISC_VERSION",
+                "LICENSE",
+                "PARENTAL_LEVEL",
+                "PSP_SYSTEM_VER",
+                "REGION",
+                "TITLE",
+            ],
+        )
 
     def test_writes_sections_psar_indexes_and_startdat(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -221,6 +266,7 @@ class PbpWriterTests(unittest.TestCase):
                 "icon": b"icon-resource",
                 "thumbnail": b"thumbnail-resource",
                 "background": b"background-resource",
+                "snd0": b"snd0-resource",
             }
 
             write_pbp(
@@ -238,27 +284,43 @@ class PbpWriterTests(unittest.TestCase):
             self.assertEqual(header[1], 0x10000)
             self.assertEqual(list(header[2:]), sorted(header[2:]))
             sfo_offset, icon_offset, _, thumbnail_offset, background_offset, _, _, psar_offset = header[2:]
+            self.assertEqual(psar_offset, (header[8] + 30632 + 0xFFFF) & 0xFFFF0000)
             self.assertEqual(output[icon_offset:thumbnail_offset], artwork["icon"])
             self.assertEqual(output[thumbnail_offset:background_offset], artwork["thumbnail"])
+            self.assertEqual(output[header[7]:header[8]], artwork["snd0"])
             self.assertIn(artwork["background"], output[background_offset:psar_offset])
-            self.assertEqual(output[psar_offset:psar_offset + 12], b"PSISOIMG0000")
-            toc_offset = psar_offset + 0x800
-            self.assertEqual(output[toc_offset + 27:toc_offset + 30], bytes((0, 0, 0x20)))
-            self.assertEqual(output[toc_offset + 33:toc_offset + 36], bytes((0, 0, 0)))
+            self.assertEqual(output[psar_offset:psar_offset + 16], b"PSTITLEIMG000000")
+            image_psar_offset = psar_offset + struct.unpack_from("<I", output, psar_offset + 0x200)[0]
+            self.assertEqual(output[image_psar_offset:image_psar_offset + 12], b"PSISOIMG0000")
+            self.assertEqual(
+                output[image_psar_offset + 0x420:image_psar_offset + 0x420 + len(DEFAULT_PSP_CONFIG)],
+                DEFAULT_PSP_CONFIG,
+            )
+            toc_offset = image_psar_offset + 0x800
+            self.assertEqual(output[toc_offset + 10], 0x01)
+            self.assertEqual(output[toc_offset + 27:toc_offset + 30], bytes((0, 0, 0x21)))
+            self.assertEqual(output[toc_offset + 33:toc_offset + 36], bytes((0, 2, 1)))
             self.assertEqual(output[toc_offset + 37:toc_offset + 40], bytes((0, 2, 0)))
 
-            psar_size = struct.unpack_from("<I", output, psar_offset + 12)[0]
+            psar_size = struct.unpack_from("<I", output, image_psar_offset + 12)[0]
             self.assertGreater(psar_size, 0)
             block_count = (len(raw) + BLOCK_SIZE - 1) // BLOCK_SIZE
             self.assertEqual(block_count, 2)
             decoded = bytearray()
             for block_number in range(block_count):
-                index = psar_offset + 0x4000 + block_number * 32
+                index = image_psar_offset + 0x4000 + block_number * 32
                 data_offset, data_length = struct.unpack_from("<IH", output, index)
                 block_hash = output[index + 8:index + 24]
-                payload = output[psar_offset + 0x100000 + data_offset:
-                                 psar_offset + 0x100000 + data_offset + data_length]
-                block = payload if data_length == BLOCK_SIZE else zlib.decompress(payload, -15)
+                payload = output[image_psar_offset + 0x100000 + data_offset:
+                                 image_psar_offset + 0x100000 + data_offset + data_length]
+                block = (
+                    zlib.decompress(payload, -15)
+                    if data_length < BLOCK_SIZE
+                    else payload
+                )
+                self.assertEqual(
+                    payload, _encode_psar_block(block),
+                )
                 self.assertEqual(len(block), BLOCK_SIZE)
                 self.assertEqual(block_hash, hashlib.sha1(block).digest()[:16])
                 decoded.extend(block)
@@ -271,6 +333,47 @@ class PbpWriterTests(unittest.TestCase):
             self.assertEqual(struct.unpack_from("<I", output, startdat + 16)[0], 0x50)
             self.assertGreater(struct.unpack_from("<I", output, startdat + 20)[0], 0)
             self.assertGreater(sfo_offset, 0)
+
+    def test_compresses_blocks_as_raw_deflate_and_falls_back_to_raw(self):
+        compressible = b"A" * BLOCK_SIZE
+        compressed = _encode_psar_block(compressible)
+        self.assertEqual(
+            hashlib.sha256(compressed).hexdigest(),
+            "e955cfd7c9d85033ee37a6ab08949b9123ee383cbb62ddabf5b4904bf4da64c1",
+        )
+        self.assertEqual(zlib.decompress(compressed, -15), compressible)
+
+        incompressible = hashlib.shake_256(b"raw PSAR fallback").digest(BLOCK_SIZE)
+        self.assertEqual(_encode_psar_block(incompressible), incompressible)
+
+    def test_raw_fallback_keeps_the_pop_fe_index_flag_clear(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cue = root / "game.cue"
+            image_path = root / "disc.bin"
+            output_path = root / "game.pbp"
+            cue.write_text(
+                'FILE "disc.bin" BINARY\nTRACK 01 MODE1/2352\nINDEX 01 00:00:00\n',
+                encoding="utf-8",
+            )
+            raw = hashlib.shake_256(b"raw PSAR fallback").digest(20 * SECTOR_SIZE)
+            image_path.write_bytes(raw)
+
+            write_pbp(cue, {"disc.bin": image_path}, output_path, "Test", "SLUS-12345", {})
+
+            output = output_path.read_bytes()
+            psar_offset = struct.unpack_from("<I", output, 36)[0]
+            image_offset = psar_offset + struct.unpack_from(
+                "<I", output, psar_offset + 0x200
+            )[0]
+            index_offset = image_offset + 0x4000
+            data_offset, data_length = struct.unpack_from("<IH", output, index_offset)
+            self.assertEqual(data_length, BLOCK_SIZE)
+            self.assertEqual(output[index_offset + 6], 0)
+            payload_offset = image_offset + 0x100000 + data_offset
+            self.assertEqual(
+                output[payload_offset:payload_offset + data_length], raw[:BLOCK_SIZE]
+            )
 
     def test_rejects_invalid_game_id_before_writing(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -328,22 +431,37 @@ class PbpWriterTests(unittest.TestCase):
                 )
                 payload_start = disc_psar + 0x100000 + data_offset
                 payload = output[payload_start:payload_start + data_length]
-                block = payload if data_length == BLOCK_SIZE else zlib.decompress(payload, -15)
+                block = zlib.decompress(payload, -15) if data_length < BLOCK_SIZE else payload
                 self.assertEqual(block[:SECTOR_SIZE], bytes((fill,)) * SECTOR_SIZE)
 
-    def test_one_selected_disc_keeps_single_disc_layout(self):
+    def test_one_selected_disc_uses_psp_title_header(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             cue = self._create_disc(root, "only", 0x41)
             output_path = root / "single.pbp"
 
-            write_multidisc_pbp([cue], output_path, "Single Disc", "SLUS-12345", {})
+            write_multidisc_pbp([cue], output_path, "Single Disc", "SLUS-00707", {})
 
             output = output_path.read_bytes()
             psar_offset = struct.unpack_from("<I", output, 36)[0]
-            self.assertEqual(output[psar_offset:psar_offset + 12], b"PSISOIMG0000")
-            self.assertNotIn(b"PSTITLEIMG000000", output[psar_offset:psar_offset + 0x4000])
+            self.assertEqual(output[psar_offset:psar_offset + 16], b"PSTITLEIMG000000")
+            image_psar_offset = psar_offset + struct.unpack_from("<I", output, psar_offset + 0x200)[0]
+            self.assertEqual(image_psar_offset % 0x8000, 0)
+            self.assertEqual(output[image_psar_offset:image_psar_offset + 12], b"PSISOIMG0000")
+            config = output[image_psar_offset + 0x420:image_psar_offset + 0x420 + 272]
+            self.assertEqual(config, PSP_CONFIG_OVERRIDES["SLUS00707"])
+            self.assertEqual(
+                hashlib.sha256(config).hexdigest(),
+                "0e82e318e6b15fda18e7b1920fb75a7953a520ccbbb7658d6fbbe1f8674a2d49",
+            )
             self.assertEqual(output.count(b"STARTDAT"), 1)
+
+    def test_uses_bundled_pop_fe_profile_for_known_game_id(self):
+        game_id = "SCES00001"
+        profile_path = ASSET_DIR / "pspconfigs" / PSP_CONFIG_MAP[game_id]
+
+        self.assertEqual(_psp_config_for_id(game_id), profile_path.read_bytes())
+        self.assertNotEqual(_psp_config_for_id(game_id), DEFAULT_PSP_CONFIG)
 
     def test_uploaded_disc_writer_accepts_staged_file_names(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -367,7 +485,9 @@ class PbpWriterTests(unittest.TestCase):
 
             output = output_path.read_bytes()
             psar_offset = struct.unpack_from("<I", output, 36)[0]
-            self.assertEqual(output[psar_offset:psar_offset + 12], b"PSISOIMG0000")
+            self.assertEqual(output[psar_offset:psar_offset + 16], b"PSTITLEIMG000000")
+            image_psar_offset = psar_offset + struct.unpack_from("<I", output, psar_offset + 0x200)[0]
+            self.assertEqual(output[image_psar_offset:image_psar_offset + 12], b"PSISOIMG0000")
 
     def test_rejects_more_than_five_disc_selections(self):
         with tempfile.TemporaryDirectory() as temporary:

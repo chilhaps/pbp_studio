@@ -15,7 +15,6 @@ from pathlib import Path
 from cue_sheet import parse_cue, resolve_source_files
 from pbp_writer import (
     MAX_DISCS,
-    RECOMMENDED_COMPRESSION_LEVEL,
     write_uploaded_multidisc_pbp,
 )
 
@@ -24,6 +23,7 @@ ROOT = Path(__file__).resolve().parent
 UI_DIR = ROOT / "ui"
 MAX_UPLOAD_SIZE = 8 * 1024**3
 MAX_IMAGE_SIZE = 20 * 1024**2
+MAX_SND0_SIZE = 64 * 1024**2
 UPLOAD_CHUNK = 1024 * 1024
 ARTWORK_LABELS = {
     "icon": "Game cover",
@@ -117,6 +117,22 @@ def _resolve_uploaded_disc(source_ids, uploads: dict[str, Upload], uploads_lock)
         raise ValueError("The selection includes a BIN file not referenced by the CUE sheet.")
 
     return UploadedDisc(cue_upload.path, sources, cue_upload.name, len(sheet.tracks))
+
+
+def _resolve_uploaded_snd0(sound_id, uploads: dict[str, Upload], uploads_lock):
+    if sound_id is None:
+        return None
+    if not isinstance(sound_id, str) or not sound_id:
+        raise ValueError("Invalid SND0 upload selection.")
+    with uploads_lock:
+        sound_upload = uploads.get(sound_id)
+    if sound_upload is None:
+        raise ValueError("The SND0 upload expired. Select the file again.")
+    if Path(_safe_filename(sound_upload.name)).suffix.casefold() not in (".at3", ".snd0"):
+        raise ValueError("SND0 audio must be an .AT3 or .SND0 file.")
+    if sound_upload.size > MAX_SND0_SIZE:
+        raise ValueError("SND0 audio must be no larger than 64 MB.")
+    return sound_upload
 
 
 def _create_handler(token: str, uploads: dict[str, Upload], uploads_lock, staging: Path):
@@ -278,6 +294,7 @@ def _create_handler(token: str, uploads: dict[str, Upload], uploads_lock, stagin
             game_id = request.get("gameId")
             disc_selections = request.get("discs")
             image_ids = request.get("images", {})
+            snd0_id = request.get("snd0")
             if not isinstance(title, str) or not isinstance(game_id, str):
                 raise ValueError("Enter a game title and game ID.")
             if (
@@ -291,6 +308,7 @@ def _create_handler(token: str, uploads: dict[str, Upload], uploads_lock, stagin
                 raise ValueError("Invalid artwork selection.")
             if any(kind not in ("icon", "thumbnail", "background") for kind in image_ids):
                 raise ValueError("Unknown artwork slot.")
+            sound_upload = _resolve_uploaded_snd0(snd0_id, uploads, uploads_lock)
 
             source_groups = []
             all_source_ids = []
@@ -338,6 +356,8 @@ def _create_handler(token: str, uploads: dict[str, Upload], uploads_lock, stagin
                         data = image_upload.path.read_bytes()
                         _verify_png(data, kind)
                         images[kind] = data
+                if sound_upload:
+                    images["snd0"] = sound_upload.path.read_bytes()
 
                 output_path = work / "output.pbp"
                 write_uploaded_multidisc_pbp(
@@ -346,7 +366,6 @@ def _create_handler(token: str, uploads: dict[str, Upload], uploads_lock, stagin
                     title,
                     game_id,
                     images,
-                    RECOMMENDED_COMPRESSION_LEVEL,
                 )
                 self._send_pbp(output_path, _safe_output_name(title))
 

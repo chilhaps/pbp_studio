@@ -17,8 +17,8 @@ PBP Studio opens a browser tab and serves its interface on a temporary loopback-
 
 1. Use **Add Disc** to select one `.cue` sheet and all `.bin` files it references in your browser's file picker. Each disc is uploaded and validated before you add the next one.
 2. Add discs in sequence, then use the up/down controls to set disc order. Enter a game title and a nine-character ID (four letters and five digits, such as `SLUS-12345`).
-3. Optionally add a game cover, logo, and background by choosing an image, dropping it onto a frame, or copying an image and using Paste (then press Ctrl+V / Cmd+V).
-4. Build the PBP using the recommended compression setting. The browser downloads the finished file.
+3. Optionally add a game cover, logo, and background by choosing an image, dropping it onto a frame, or copying an image and using Paste (then press Ctrl+V / Cmd+V). You can also add an existing `.AT3`/`.SND0` file for the optional XMB audio section.
+4. Build the PBP. The browser downloads the finished file.
 
 Artwork is normalized to the PBP dimensions: game cover 80 × 80, logo 310 × 180, and background 480 × 272. The 384 × 216 live preview follows pop-fe-psp's composition: the background fills the frame, the logo overlays near the center, and the game cover appears as a 54 × 54 icon near the left. Drag the logo to reposition it and use the **Logo size** slider to resize it from 50% to 150%; both changes are included in the exported background. For each image, choose **Crop** to fill the image frame or **Fit** to keep the entire image (with transparent padding as needed). In Crop mode, drag the small image preview to reposition the crop and use the zoom slider to adjust it. Original image files are not modified.
 
@@ -32,11 +32,11 @@ Artwork is normalized to the PBP dimensions: game cover 80 × 80, logo 310 × 18
 
 ## Privacy and security
 
-The application binds only to `127.0.0.1`, uses a per-run request token, and does not make external network requests. Each disc's CUE and BIN files are uploaded to the local app one at a time, stored in a temporary directory on this computer, and removed when the application exits. Do not expose the local port through a proxy or port-forward.
+The application binds only to `127.0.0.1`, uses a per-run request token, and does not make external network requests. Disc files, images, and optional SND0 audio are uploaded to the local app and stored in a temporary directory on this computer; they are removed when the application exits. Do not expose the local port through a proxy or port-forward.
 
 ## Implementation and bundled resources
 
-The CUE reader, PBP/SFO writer, PSAR block encoder, local HTTP server, and browser UI are self-contained in this repository. Five resources in `assets/` (`data_psp.bin`, `pops_logo.png`, the two STARTDAT fragments, and the multi-disc title header) are bundled from pop-fe under the GNU LGPL version 2.1; see [licenses/POP-FE-LGPL-2.1.txt](licenses/POP-FE-LGPL-2.1.txt). These resources are used locally to create compatible PBP files. No reference-project source code is imported or invoked at runtime.
+The CUE reader, PBP/SFO writer, PSAR block encoder, local HTTP server, and browser UI are self-contained in this repository. PSAR blocks follow popstation's compressed path: each 0x9300-byte block is zlib-compressed at level 1, stored as raw DEFLATE (without the zlib header/trailer), and stored uncompressed if compression is not smaller. The compressor is pinned to classic zlib 1.2.13 for byte-stable output: Linux x86-64 uses the bundled library when Python's zlib runtime differs, while other platforms require Python's zlib runtime to be 1.2.13. The bundled zlib library is covered by [licenses/ZLIB-1.2.13.txt](licenses/ZLIB-1.2.13.txt). PBP resources and PSP game profiles are bundled from pop-fe under the GNU LGPL version 2.1; see [licenses/POP-FE-LGPL-2.1.txt](licenses/POP-FE-LGPL-2.1.txt). The profile map covers the available per-game configurations in pop-fe's game database. These resources are used locally to create compatible PBP files. No reference-project source code is imported or invoked at runtime.
 
 The project code is licensed under the MIT License; see [LICENSE](LICENSE).
 

@@ -78,6 +78,23 @@
               <strong>Artwork preview</strong>
               <small id="artwork-preview-hint">Drag the logo to reposition it; the placement is included in the exported background.</small>
             </div>
+            <fieldset class="logo-output-options">
+              <legend>LOGO OUTPUT</legend>
+              <label class="logo-output-option">
+                <input type="radio" name="logo-output-mode" value="background" checked>
+                <span>
+                  <strong>Compose into background</strong>
+                  <small>Position and resize in the preview; PIC0 stays blank.</small>
+                </span>
+              </label>
+              <label class="logo-output-option">
+                <input type="radio" name="logo-output-mode" value="pic0">
+                <span>
+                  <strong>Use PIC0</strong>
+                  <small>Default position and scale; not included in the background.</small>
+                </span>
+              </label>
+            </fieldset>
             <canvas
               id="artwork-preview"
               width="384"

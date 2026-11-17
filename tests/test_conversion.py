@@ -405,6 +405,8 @@ class PbpWriterTests(unittest.TestCase):
 
             output = output_path.read_bytes()
             psar_offset = struct.unpack_from("<I", output, 36)[0]
+            header = struct.unpack_from("<10I", output)
+            self.assertEqual(header[5], header[6])
             self.assertEqual(output[psar_offset:psar_offset + 16], b"PSTITLEIMG000000")
             startdat_offset = struct.unpack_from("<I", output, psar_offset + 0x10)[0]
             disc_offsets = struct.unpack_from("<5I", output, psar_offset + 0x200)
@@ -480,14 +482,41 @@ class PbpWriterTests(unittest.TestCase):
                 output_path,
                 "Uploaded Disc",
                 "SLUS-12345",
-                {},
+                {
+                    "thumbnail": b"logo-resource",
+                    "background": b"background-resource",
+                },
             )
 
             output = output_path.read_bytes()
+            header = struct.unpack_from("<10I", output)
+            pic0_offset, pic1_offset = header[5:7]
+            self.assertEqual(output[pic0_offset:pic1_offset], b"logo-resource")
+            self.assertEqual(
+                output[pic1_offset:pic1_offset + len(b"background-resource")],
+                b"background-resource",
+            )
             psar_offset = struct.unpack_from("<I", output, 36)[0]
             self.assertEqual(output[psar_offset:psar_offset + 16], b"PSTITLEIMG000000")
             image_psar_offset = psar_offset + struct.unpack_from("<I", output, psar_offset + 0x200)[0]
             self.assertEqual(output[image_psar_offset:image_psar_offset + 12], b"PSISOIMG0000")
+
+            composed_output_path = root / "composed.pbp"
+            write_uploaded_multidisc_pbp(
+                [(cue, {"disc.bin": image})],
+                composed_output_path,
+                "Composed Logo",
+                "SLUS-12345",
+                {"background": b"composed-background"},
+            )
+            composed_output = composed_output_path.read_bytes()
+            composed_header = struct.unpack_from("<10I", composed_output)
+            composed_pic0_offset, composed_pic1_offset = composed_header[5:7]
+            self.assertEqual(composed_pic0_offset, composed_pic1_offset)
+            self.assertEqual(
+                composed_output[composed_pic1_offset:composed_header[7]],
+                b"composed-background",
+            )
 
     def test_rejects_more_than_five_disc_selections(self):
         with tempfile.TemporaryDirectory() as temporary:

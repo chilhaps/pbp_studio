@@ -22,17 +22,21 @@
   const previewHeight = 216;
   const popfeArtworkWidth = 382;
   const artworkPreview = document.getElementById("artwork-preview");
+  const artworkPreviewHint = document.getElementById("artwork-preview-hint");
   const previewContext = artworkPreview.getContext("2d");
   const logoSizeInput = document.getElementById("logo-size");
   const logoSizeOutput = document.getElementById("logo-size-value");
+  const logoOutputInputs = document.querySelectorAll('input[name="logo-output-mode"]');
   const composedBackground = document.createElement("canvas");
   composedBackground.width = 480;
   composedBackground.height = 272;
   const composedBackgroundContext = composedBackground.getContext("2d");
-  const logoPosition = { x: 148, y: 79 };
+  const defaultLogoPosition = { x: 148, y: 79 };
+  const logoPosition = { ...defaultLogoPosition };
   const logoBaseWidth = Math.trunc(popfeArtworkWidth * 0.55);
   const logoBaseHeight = Math.trunc(previewHeight * 0.58);
   const coverPreviewSize = Math.trunc(previewHeight * 0.25);
+  let logoDisplayMode = "background";
   let logoScale = 1;
   let logoDrag = null;
   const artworkDimensions = {
@@ -287,7 +291,7 @@
       );
     }
 
-    const logo = artwork.thumbnail;
+    const logo = logoDisplayMode === "background" ? artwork.thumbnail : null;
     if (logo?.image.complete && logo.image.naturalWidth) {
       const { width, height } = getLogoPreviewSize();
       composedBackgroundContext.drawImage(
@@ -300,8 +304,8 @@
     }
   }
 
-  function getLogoPreviewSize() {
-    return { width: logoBaseWidth * logoScale, height: logoBaseHeight * logoScale };
+  function getLogoPreviewSize(scale = logoScale) {
+    return { width: logoBaseWidth * scale, height: logoBaseHeight * scale };
   }
 
   function drawArtworkPreview() {
@@ -310,6 +314,18 @@
     previewContext.fillStyle = "#fff";
     previewContext.fillRect(0, 0, artworkPreview.width, artworkPreview.height);
     previewContext.drawImage(composedBackground, 0, 0, previewWidth, previewHeight);
+
+    const logo = artwork.thumbnail;
+    if (logoDisplayMode === "pic0" && logo?.image.complete && logo.image.naturalWidth) {
+      const { width, height } = getLogoPreviewSize(1);
+      previewContext.drawImage(
+        document.querySelector("#preview-thumbnail canvas"),
+        defaultLogoPosition.x,
+        defaultLogoPosition.y,
+        width,
+        height,
+      );
+    }
 
     const cover = artwork.icon;
     if (cover?.image.complete && cover.image.naturalWidth) {
@@ -321,8 +337,16 @@
         coverPreviewSize,
       );
     }
-    artworkPreview.classList.toggle("has-logo", Boolean(artwork.thumbnail));
-    logoSizeInput.disabled = !artwork.thumbnail;
+    const canPositionLogo = Boolean(logo) && logoDisplayMode === "background";
+    artworkPreview.classList.toggle("has-logo", canPositionLogo);
+    logoSizeInput.disabled = !canPositionLogo;
+    logoSizeInput.value = String(logoDisplayMode === "pic0" ? 100 : logoScale * 100);
+    logoSizeOutput.value = `${logoSizeInput.value}%`;
+    artworkPreviewHint.textContent = !logo
+      ? "Choose how the logo should appear when you add one."
+      : canPositionLogo
+        ? "Drag the logo to reposition it; the placement is included in the exported background."
+        : "PIC0 uses the default position and scale; the logo is not included in the exported background.";
   }
 
   function previewPoint(event) {
@@ -334,7 +358,7 @@
   }
 
   artworkPreview.addEventListener("pointerdown", (event) => {
-    if (!artwork.thumbnail) return;
+    if (!artwork.thumbnail || logoDisplayMode !== "background") return;
     const point = previewPoint(event);
     const { width, height } = getLogoPreviewSize();
     if (
@@ -358,7 +382,11 @@
   artworkPreview.addEventListener("pointerup", () => { logoDrag = null; });
   artworkPreview.addEventListener("pointercancel", () => { logoDrag = null; });
   artworkPreview.addEventListener("keydown", (event) => {
-    if (!artwork.thumbnail || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+    if (
+      !artwork.thumbnail
+      || logoDisplayMode !== "background"
+      || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
+    ) return;
     const step = event.shiftKey ? 10 : 1;
     if (event.key === "ArrowLeft") logoPosition.x -= step;
     if (event.key === "ArrowRight") logoPosition.x += step;
@@ -371,6 +399,7 @@
     event.preventDefault();
   });
   logoSizeInput.addEventListener("input", () => {
+    if (!artwork.thumbnail || logoDisplayMode !== "background") return;
     const previousSize = getLogoPreviewSize();
     const centerX = logoPosition.x + previousSize.width / 2;
     const centerY = logoPosition.y + previousSize.height / 2;
@@ -381,6 +410,15 @@
     logoSizeOutput.value = `${logoSizeInput.value}%`;
     drawArtworkPreview();
   });
+
+  for (const input of logoOutputInputs) {
+    input.addEventListener("change", () => {
+      if (!input.checked) return;
+      logoDisplayMode = input.value;
+      logoDrag = null;
+      drawArtworkPreview();
+    });
+  }
 
   function updateArtworkControls(slot) {
     const state = artwork[slot];
@@ -545,13 +583,18 @@
       const selectedDiscs = discs.map((disc) => ({ sourceIds: disc.sourceIds }));
       const uploadedImages = {};
       let snd0Id = null;
-      for (const slot of ["icon", "thumbnail"]) {
+      for (const slot of ["icon"]) {
         if (!artwork[slot]) continue;
         setStatus(`Preparing ${artworkLabels[slot]}…`);
         const png = await toPng(slot);
         uploadedImages[slot] = (await upload(png, png.name)).id;
       }
-      if (artwork.background || artwork.thumbnail) {
+      if (artwork.thumbnail && logoDisplayMode === "pic0") {
+        setStatus("Preparing logo for PIC0…");
+        const png = await toPng("thumbnail");
+        uploadedImages.thumbnail = (await upload(png, png.name)).id;
+      }
+      if (artwork.background || (artwork.thumbnail && logoDisplayMode === "background")) {
         setStatus("Preparing PSP background…");
         const png = await canvasToPng(composedBackground, "background.png");
         uploadedImages.background = (await upload(png, png.name)).id;

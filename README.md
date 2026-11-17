@@ -45,3 +45,7 @@ The project code is licensed under the MIT License; see [LICENSE](LICENSE).
 ```sh
 python3 -m unittest discover -s tests -v
 ```
+
+## AI Usage Disclosure
+
+GitHub Copilot was extensively used throughout the creation of this application.

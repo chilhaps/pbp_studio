@@ -267,8 +267,8 @@
     const drawHeight = state.image.naturalHeight * scale;
     const overflowX = Math.max(0, drawWidth - width);
     const overflowY = Math.max(0, drawHeight - height);
-    const drawX = -overflowX * state.positionX / 100;
-    const drawY = -overflowY * state.positionY / 100;
+    const drawX = state.mode === "fit" ? (width - drawWidth) / 2 : -overflowX * state.positionX / 100;
+    const drawY = state.mode === "fit" ? (height - drawHeight) / 2 : -overflowY * state.positionY / 100;
     context.clearRect(0, 0, width, height);
     context.drawImage(state.image, drawX, drawY, drawWidth, drawHeight);
     drawArtworkPreview();

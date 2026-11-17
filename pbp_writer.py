@@ -36,16 +36,19 @@ def _load_pop_fe_compressor():
     if zlib.ZLIB_RUNTIME_VERSION == "1.2.13":
         return None, None
     # zlib-ng emits valid DEFLATE, but not the byte stream used by pop-fe's zlib 1.2.13.
-    if sys.platform != "linux" or platform.machine().lower() not in ("x86_64", "amd64"):
+    path = _pop_fe_compressor_path()
+    if path is None:
         raise RuntimeError(
-            "Pop-fe-compatible PSAR compression requires zlib 1.2.13 on this platform."
+            "Pop-fe-compatible PSAR compression requires zlib 1.2.13 or a bundled "
+            "x86-64 Linux, macOS, or Windows runtime."
         )
 
-    path = ASSET_DIR / "libz_1_2_13.so"
     try:
         library = ctypes.CDLL(str(path))
     except OSError as error:
-        raise RuntimeError("The bundled pop-fe-compatible zlib library is unavailable.") from error
+        raise RuntimeError(
+            f"The bundled pop-fe-compatible zlib library could not be loaded: {path.name}."
+        ) from error
 
     version = library.zlibVersion
     version.restype = ctypes.c_char_p
@@ -62,6 +65,23 @@ def _load_pop_fe_compressor():
     )
     compress2.restype = ctypes.c_int
     return library, compress2
+
+
+def _pop_fe_compressor_path(
+    system: str | None = None,
+    machine: str | None = None,
+) -> Path | None:
+    system = sys.platform if system is None else system
+    machine = platform.machine() if machine is None else machine
+    if machine.casefold() not in ("x86_64", "amd64"):
+        return None
+    library_names = {
+        "linux": "libz_1_2_13.so",
+        "darwin": "libz_1_2_13.dylib",
+        "win32": "libz_1_2_13.dll",
+    }
+    library_name = library_names.get(system)
+    return ASSET_DIR / library_name if library_name else None
 
 
 DEFAULT_PSP_CONFIG = bytes.fromhex(

@@ -23,6 +23,7 @@ from pbp_writer import (
     PSP_CONFIG_OVERRIDES,
     _build_sfo,
     _encode_psar_block,
+    _pop_fe_compressor_path,
     _psp_config_for_id,
     write_multidisc_pbp,
     write_pbp,
@@ -345,6 +346,24 @@ class PbpWriterTests(unittest.TestCase):
 
         incompressible = hashlib.shake_256(b"raw PSAR fallback").digest(BLOCK_SIZE)
         self.assertEqual(_encode_psar_block(incompressible), incompressible)
+
+    def test_selects_bundled_compressor_for_each_x64_platform(self):
+        for system, filename in (
+            ("linux", "libz_1_2_13.so"),
+            ("darwin", "libz_1_2_13.dylib"),
+            ("win32", "libz_1_2_13.dll"),
+        ):
+            with self.subTest(system=system):
+                path = _pop_fe_compressor_path(system, "x86_64")
+                self.assertEqual(path, ASSET_DIR / filename)
+                self.assertTrue(path.is_file())
+
+        self.assertIsNone(_pop_fe_compressor_path("linux", "aarch64"))
+        self.assertIsNone(_pop_fe_compressor_path("freebsd", "x86_64"))
+        self.assertEqual(
+            _pop_fe_compressor_path("win32", "AMD64"),
+            ASSET_DIR / "libz_1_2_13.dll",
+        )
 
     def test_raw_fallback_keeps_the_pop_fe_index_flag_clear(self):
         with tempfile.TemporaryDirectory() as temporary:

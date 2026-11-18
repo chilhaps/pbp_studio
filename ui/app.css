@@ -18,14 +18,18 @@
 
 * { box-sizing: border-box; }
 
+html { min-height: 100%; background: var(--bg); }
+
 body {
   margin: 0;
   min-width: 320px;
+  min-height: 100vh;
   background:
     radial-gradient(ellipse at 18% -18%, rgba(237, 28, 36, .07), transparent 42%),
     radial-gradient(ellipse at 82% -18%, rgba(0, 169, 157, .08), transparent 42%),
     radial-gradient(ellipse at 50% -18%, rgba(0, 114, 188, .10), transparent 49%),
     var(--bg);
+  background-repeat: no-repeat;
   color: var(--text);
   font: 15px/1.5 var(--sans);
 }
@@ -75,7 +79,7 @@ button, label { -webkit-tap-highlight-color: transparent; }
 .local-badge span { width: 7px; height: 7px; background: var(--teal); border-radius: 50%; box-shadow: 0 0 10px #00a99d80; }
 
 main { width: min(1120px, calc(100% - 48px)); margin: 0 auto; }
-.intro { padding: 68px 0 48px; }
+.intro { padding: 16px 0; }
 .eyebrow { margin: 0 0 14px; color: var(--yellow); }
 h1, h2, p { margin-top: 0; }
 h1 { margin-bottom: 16px; font: 600 clamp(42px, 6vw, 70px)/.98 var(--display); letter-spacing: -.055em; }
@@ -215,7 +219,7 @@ footer { display: flex; justify-content: space-between; gap: 12px; padding: 37px
 
 @media (max-width: 850px) {
   .workspace-grid { grid-template-columns: 1fr; }
-  .intro { padding-top: 52px; }
+  .intro { padding-top: 16px; }
   .art-slot { grid-template-columns: 150px minmax(0,1fr); }
 }
 
@@ -223,7 +227,7 @@ footer { display: flex; justify-content: space-between; gap: 12px; padding: 37px
   main { width: min(100% - 28px, 520px); }
   .topbar { height: 60px; padding: 0 16px; }
   .local-badge { font-size: 8px; }
-  .intro { padding: 43px 0 31px; }
+  .intro { padding: 12px 0; }
   .intro-copy { font-size: 14px; }
   .panel { padding: 19px 15px; }
   .panel-heading { gap: 10px; }

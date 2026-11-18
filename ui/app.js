@@ -616,21 +616,36 @@
         }),
       });
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Conversion failed.");
+        const result = await response.json();
+        const error = new Error(result.error || "Conversion failed.");
+        error.consumedDiscIndexes = Array.isArray(result.consumedDiscIndexes)
+          ? result.consumedDiscIndexes
+          : [];
+        throw error;
       }
-      const blob = await response.blob();
-      const objectUrl = URL.createObjectURL(blob);
+      const download = await response.json();
+      discs = [];
+      if (typeof download.downloadUrl !== "string" || !/^\/api\/download\/[0-9a-f]{32}$/.test(download.downloadUrl)) {
+        throw new Error("The PBP was created, but its download link is invalid. Build it again.");
+      }
       const anchor = document.createElement("a");
-      anchor.href = objectUrl;
-      anchor.download = `${titleInput.value.trim().replace(/[\\/:*?"<>|]+/g, "-")}.pbp`;
+      anchor.href = download.downloadUrl;
+      anchor.download = typeof download.filename === "string" ? download.filename : "game.pbp";
       document.body.append(anchor);
       anchor.click();
       anchor.remove();
-      URL.revokeObjectURL(objectUrl);
       setStatus("Your PBP is ready and the download has started.", "success");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Conversion failed.", "error");
+      const consumedDiscIndexes = error instanceof Error && Array.isArray(error.consumedDiscIndexes)
+        ? new Set(error.consumedDiscIndexes)
+        : new Set();
+      if (consumedDiscIndexes.size) {
+        discs = discs.filter((_, index) => !consumedDiscIndexes.has(index));
+        const message = error instanceof Error ? error.message : "Conversion failed.";
+        setStatus(`${message} Re-add the processed discs before trying again.`, "error");
+      } else {
+        setStatus(error instanceof Error ? error.message : "Conversion failed.", "error");
+      }
     } finally {
       busy = false;
       convertButton.disabled = false;

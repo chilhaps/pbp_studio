@@ -6,6 +6,7 @@ import re
 import struct
 import sys
 import zlib
+from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
 
@@ -375,7 +376,13 @@ def _write_startdat(output) -> None:
     output.write(_read_asset("startdat_footer.bin"))
 
 
-def _write_multidisc_psar(output, discs, title: str, disc_id: str) -> None:
+def _write_multidisc_psar(
+    output,
+    discs,
+    title: str,
+    disc_id: str,
+    on_disc_complete: Callable[[int], None] | None = None,
+) -> None:
     psar_start = output.tell()
     title_header = bytearray(_read_asset("pstitle_header.bin"))
     if len(title_header) != 0x400:
@@ -383,7 +390,7 @@ def _write_multidisc_psar(output, discs, title: str, disc_id: str) -> None:
     output.write(title_header)
 
     disc_offsets = []
-    for sheet, sources in discs:
+    for disc_index, (sheet, sources) in enumerate(discs):
         disc_start = _round_up(output.tell(), 0x8000)
         disc_offset = disc_start - psar_start
         if disc_offset > 0xFFFFFFFF:
@@ -391,6 +398,8 @@ def _write_multidisc_psar(output, discs, title: str, disc_id: str) -> None:
         output.write(bytes(disc_start - output.tell()))
         disc_offsets.append(disc_offset)
         _write_psar(output, sheet, sources, title, disc_id)
+        if on_disc_complete:
+            on_disc_complete(disc_index)
 
     startdat_offset = _round_up(output.tell(), 0x10)
     if startdat_offset - psar_start > 0xFFFFFFFF:
@@ -493,6 +502,7 @@ def write_uploaded_multidisc_pbp(
     title: str,
     game_id: str,
     images: dict[str, bytes],
+    on_disc_complete: Callable[[int], None] | None = None,
 ) -> None:
     title = title.strip()
     if not title:
@@ -511,7 +521,9 @@ def write_uploaded_multidisc_pbp(
         sources = resolve_source_files(sheet, uploaded_sources)
         discs.append((sheet, sources))
 
-    _write_prepared_pbp(discs, output_path, title, disc_id, images)
+    _write_prepared_pbp(
+        discs, output_path, title, disc_id, images, on_disc_complete
+    )
 
 
 def _write_prepared_pbp(
@@ -520,6 +532,7 @@ def _write_prepared_pbp(
     title: str,
     disc_id: str,
     images: dict[str, bytes],
+    on_disc_complete: Callable[[int], None] | None = None,
 ) -> None:
     sfo = _build_sfo(title, disc_id)
     resources = [
@@ -542,4 +555,6 @@ def _write_prepared_pbp(
         for resource in resources:
             output.write(resource)
         output.write(bytes(psar_offset - output.tell()))
-        _write_multidisc_psar(output, discs, title, disc_id)
+        _write_multidisc_psar(
+            output, discs, title, disc_id, on_disc_complete
+        )

@@ -1,8 +1,12 @@
 import hashlib
+import http.server
 import struct
 import tempfile
 import threading
+import time
 import unittest
+import urllib.error
+import urllib.request
 import zlib
 from pathlib import Path
 
@@ -29,7 +33,13 @@ from pbp_writer import (
     write_pbp,
     write_uploaded_multidisc_pbp,
 )
-from server import Upload, _resolve_uploaded_disc, _resolve_uploaded_snd0
+from server import (
+    Download,
+    Upload,
+    _create_handler,
+    _resolve_uploaded_disc,
+    _resolve_uploaded_snd0,
+)
 
 
 class CueSheetTests(unittest.TestCase):
@@ -177,6 +187,51 @@ class UploadedDiscTests(unittest.TestCase):
                 _resolve_uploaded_snd0("large-id", uploads, threading.Lock())
             with self.assertRaisesRegex(ValueError, "expired"):
                 _resolve_uploaded_snd0("missing-id", uploads, threading.Lock())
+
+
+class DownloadHandlerTests(unittest.TestCase):
+    def test_native_download_is_streamed_once_and_removed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output_path = root / "game.pbp"
+            output_path.write_bytes(b"test-pbp-content")
+            download_id = "a" * 32
+            downloads = {
+                download_id: Download(output_path, "Test Game.pbp"),
+            }
+            server = http.server.ThreadingHTTPServer(
+                ("127.0.0.1", 0),
+                _create_handler(
+                    "token",
+                    {},
+                    threading.Lock(),
+                    root,
+                    downloads,
+                    threading.Lock(),
+                ),
+            )
+            server_thread = threading.Thread(target=server.serve_forever)
+            server_thread.start()
+            url = f"http://127.0.0.1:{server.server_port}/api/download/{download_id}"
+            try:
+                with urllib.request.urlopen(url) as response:
+                    self.assertEqual(response.read(), b"test-pbp-content")
+                    self.assertIn("attachment", response.headers["Content-Disposition"])
+                    self.assertEqual(response.headers["Content-Length"], "16")
+                deadline = time.monotonic() + 1
+                while output_path.exists() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertFalse(output_path.exists())
+                self.assertNotIn(download_id, downloads)
+
+                with self.assertRaises(urllib.error.HTTPError) as error:
+                    urllib.request.urlopen(url)
+                self.assertEqual(error.exception.code, 404)
+                error.exception.close()
+            finally:
+                server.shutdown()
+                server.server_close()
+                server_thread.join()
 
 
 class PbpWriterTests(unittest.TestCase):
@@ -496,6 +551,7 @@ class PbpWriterTests(unittest.TestCase):
             )
             image.write_bytes(bytes(20 * SECTOR_SIZE))
 
+            completed_disc_indexes = []
             write_uploaded_multidisc_pbp(
                 [(cue, {"disc.bin": image})],
                 output_path,
@@ -505,8 +561,10 @@ class PbpWriterTests(unittest.TestCase):
                     "thumbnail": b"logo-resource",
                     "background": b"background-resource",
                 },
+                on_disc_complete=lambda index: completed_disc_indexes.append(index),
             )
 
+            self.assertEqual(completed_disc_indexes, [0])
             output = output_path.read_bytes()
             header = struct.unpack_from("<10I", output)
             pic0_offset, pic1_offset = header[5:7]
@@ -535,6 +593,39 @@ class PbpWriterTests(unittest.TestCase):
             self.assertEqual(
                 composed_output[composed_pic1_offset:composed_header[7]],
                 b"composed-background",
+            )
+
+    def test_uploaded_writer_can_release_each_completed_disc(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            discs = []
+            for index in range(5):
+                cue = self._create_disc(root, f"disc-{index + 1}", index + 1)
+                source = cue.with_suffix(".bin")
+                discs.append((cue, {source.name: source}))
+
+            completed_disc_indexes = []
+
+            def release_disc(index):
+                completed_disc_indexes.append(index)
+                cue, sources = discs[index]
+                cue.unlink()
+                for source in sources.values():
+                    source.unlink()
+
+            write_uploaded_multidisc_pbp(
+                discs,
+                root / "five-disc.pbp",
+                "Five Disc Game",
+                "SLUS-12345",
+                {},
+                on_disc_complete=release_disc,
+            )
+
+            self.assertEqual(completed_disc_indexes, [0, 1, 2, 3, 4])
+            self.assertTrue(all(not cue.exists() for cue, _ in discs))
+            self.assertTrue(
+                all(not source.exists() for _, sources in discs for source in sources.values())
             )
 
     def test_rejects_more_than_five_disc_selections(self):

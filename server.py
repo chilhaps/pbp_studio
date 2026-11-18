@@ -1,3 +1,4 @@
+import errno
 import json
 import re
 import secrets
@@ -45,6 +46,19 @@ class UploadedDisc:
     sources: dict[str, Path]
     name: str
     track_count: int
+
+
+@dataclass
+class Download:
+    path: Path
+    filename: str
+
+
+class _ConversionFailure(Exception):
+    def __init__(self, message: str, consumed_disc_indexes: list[int], status: int = 500):
+        super().__init__(message)
+        self.consumed_disc_indexes = consumed_disc_indexes
+        self.status = status
 
 
 def _safe_filename(name: str) -> str:
@@ -135,7 +149,14 @@ def _resolve_uploaded_snd0(sound_id, uploads: dict[str, Upload], uploads_lock):
     return sound_upload
 
 
-def _create_handler(token: str, uploads: dict[str, Upload], uploads_lock, staging: Path):
+def _create_handler(
+    token: str,
+    uploads: dict[str, Upload],
+    uploads_lock,
+    staging: Path,
+    downloads: dict[str, Download],
+    downloads_lock,
+):
     class Handler(BaseHTTPRequestHandler):
         server_version = "PBPStudio/1.0"
 
@@ -206,8 +227,21 @@ def _create_handler(token: str, uploads: dict[str, Upload], uploads_lock, stagin
                 self._send_ui_file("app.js", "text/javascript; charset=utf-8")
             elif self.path == "/favicon.ico":
                 self.send_error(404)
+            elif re.fullmatch(r"/api/download/[0-9a-f]{32}", self.path):
+                self._download_pbp(self.path.rsplit("/", 1)[1])
             else:
                 self._send_json(404, {"error": "Not found."})
+
+        def _download_pbp(self, download_id: str):
+            with downloads_lock:
+                download = downloads.pop(download_id, None)
+            if download is None:
+                self._send_json(404, {"error": "This PBP download has expired or was already used."})
+                return
+            try:
+                self._send_pbp(download.path, download.filename)
+            finally:
+                download.path.unlink(missing_ok=True)
 
         def do_PUT(self):
             if not self._authorize():
@@ -256,6 +290,14 @@ def _create_handler(token: str, uploads: dict[str, Upload], uploads_lock, stagin
                     self._validate_disc(request)
                 else:
                     self._convert(request)
+            except _ConversionFailure as error:
+                self._send_json(
+                    error.status,
+                    {
+                        "error": str(error),
+                        "consumedDiscIndexes": error.consumed_disc_indexes,
+                    },
+                )
             except (ValueError, KeyError, TypeError, json.JSONDecodeError) as error:
                 self._send_json(400, {"error": str(error) or "Invalid request."})
             except Exception as error:
@@ -347,27 +389,82 @@ def _create_handler(token: str, uploads: dict[str, Upload], uploads_lock, stagin
                             f"{ARTWORK_LABELS[kind]} PNG must be smaller than 20 MB."
                         )
 
-            with tempfile.TemporaryDirectory(prefix="pbp-build-") as directory:
-                work = Path(directory)
-                images = {}
-                for kind in ("icon", "thumbnail", "background"):
-                    image_upload = selected_images.get(kind)
-                    if image_upload:
-                        data = image_upload.path.read_bytes()
-                        _verify_png(data, kind)
-                        images[kind] = data
-                if sound_upload:
-                    images["snd0"] = sound_upload.path.read_bytes()
+            images = {}
+            for kind in ("icon", "thumbnail", "background"):
+                image_upload = selected_images.get(kind)
+                if image_upload:
+                    data = image_upload.path.read_bytes()
+                    _verify_png(data, kind)
+                    images[kind] = data
+            if sound_upload:
+                images["snd0"] = sound_upload.path.read_bytes()
 
-                output_path = work / "output.pbp"
+            consumed_disc_indexes = []
+
+            def release_disc_uploads(disc_index: int):
+                consumed_disc_indexes.append(disc_index)
+                for asset_id in source_groups[disc_index]:
+                    with uploads_lock:
+                        upload = uploads.get(asset_id)
+                    if upload is None:
+                        continue
+                    upload.path.unlink(missing_ok=True)
+                    with uploads_lock:
+                        if uploads.get(asset_id) is upload:
+                            del uploads[asset_id]
+
+            output_path = staging / f"pbp-build-{uuid.uuid4().hex}.pbp"
+            download_id = None
+            try:
                 write_uploaded_multidisc_pbp(
                     [(disc.cue_path, disc.sources) for disc in selected_discs],
                     output_path,
                     title,
                     game_id,
                     images,
+                    on_disc_complete=release_disc_uploads,
                 )
-                self._send_pbp(output_path, _safe_output_name(title))
+                download_id = uuid.uuid4().hex
+                filename = _safe_output_name(title)
+                with downloads_lock:
+                    downloads[download_id] = Download(output_path, filename)
+                try:
+                    self._send_json(
+                        200,
+                        {
+                            "downloadUrl": f"/api/download/{download_id}",
+                            "filename": filename,
+                        },
+                    )
+                except OSError:
+                    with downloads_lock:
+                        downloads.pop(download_id, None)
+                    download_id = None
+                    raise
+            except OSError as error:
+                if error.errno == errno.ENOSPC:
+                    raise _ConversionFailure(
+                        "Not enough disk space to finish this PBP. Processed disc "
+                        "uploads were removed as the PBP was built to limit temporary "
+                        "storage; re-add any processed discs and free disk space before "
+                        "retrying.",
+                        consumed_disc_indexes,
+                        507,
+                    ) from error
+                if consumed_disc_indexes:
+                    raise _ConversionFailure(
+                        f"Request failed: {error}", consumed_disc_indexes
+                    ) from error
+                raise
+            except Exception as error:
+                if consumed_disc_indexes:
+                    raise _ConversionFailure(
+                        f"Request failed: {error}", consumed_disc_indexes
+                    ) from error
+                raise
+            finally:
+                if download_id is None:
+                    output_path.unlink(missing_ok=True)
 
         def _send_pbp(self, path: Path, filename: str):
             size = path.stat().st_size
@@ -396,9 +493,11 @@ def main():
         staging = Path(upload_dir)
         uploads: dict[str, Upload] = {}
         uploads_lock = threading.Lock()
+        downloads: dict[str, Download] = {}
+        downloads_lock = threading.Lock()
         server = ThreadingHTTPServer(
             ("127.0.0.1", 0),
-            _create_handler(token, uploads, uploads_lock, staging),
+            _create_handler(token, uploads, uploads_lock, staging, downloads, downloads_lock),
         )
         url = f"http://127.0.0.1:{server.server_port}/"
         print(f"PBP Studio is running at {url}")

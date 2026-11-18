@@ -18,7 +18,7 @@ PBP Studio opens a browser tab and serves its interface on a temporary loopback-
 1. Use **Add Disc** to select one `.cue` sheet and all `.bin` files it references in your browser's file picker. Each disc is uploaded and validated before you add the next one.
 2. Add discs in sequence, then use the up/down controls to set disc order. Enter a game title and a nine-character ID (four letters and five digits, such as `SLUS-12345`).
 3. Optionally add a game cover, logo, and background by choosing an image, dropping it onto a frame, or copying an image and clicking that frame's Paste button. Ctrl+V / Cmd+V also pastes into the active frame. You can also add an existing `.AT3`/`.SND0` file for the optional XMB audio section.
-4. Build the PBP. The browser downloads the finished file.
+4. Build the PBP. The browser downloads the finished file directly from the local app.
 
 Artwork is normalized to the PBP dimensions: game cover 80 × 80, logo 310 × 180, and background 480 × 272. The 384 × 216 live preview follows pop-fe-psp's composition: the background fills the frame, the logo overlays near the center, and the game cover appears as a 54 × 54 icon near the left. Choose whether to compose the logo into the exported background (PIC0 remains blank; reposition and resize it in the preview) or store it in PIC0 (default position and scale; not included in the background). For each image, choose **Crop** to fill the image frame or **Fit** to keep the entire image centered horizontally and vertically, with transparent padding as needed. In Crop mode, drag the small image preview to reposition the crop and use the zoom slider to adjust it. Original image files are not modified.
 
@@ -28,11 +28,11 @@ Artwork is normalized to the PBP dimensions: game cover 80 × 80, logo 310 × 18
 - Cooked 2048-byte ISO files, 2448-byte subchannel images, compressed BIN files, and other CUE sector modes are not supported.
 - Track numbers must be sequential, from 1 through 99. A PBP can contain one through five ordered discs, each added as its own slot.
 - Each disc selection must contain exactly one CUE sheet and every BIN file it references. CUE filenames are matched case-insensitively; unreferenced BIN files are rejected.
-- Large source files are streamed to disk in chunks; they are not read into memory as a whole. Conversion may take a while for large games.
+- Large source files are streamed to disk in chunks; they are not read into memory as a whole. During conversion, the PBP is written alongside uploaded files and each disc's temporary uploads are removed after that disc has been added to the output, reducing peak disk use. The finished PBP is downloaded directly from the local app rather than buffered into browser memory. If a later disc fails, the UI removes already-processed discs from the list so they can be re-added. Conversion may take a while for large games.
 
 ## Privacy and security
 
-The application binds only to `127.0.0.1`, uses a per-run request token, and does not make external network requests. Disc files, images, and optional SND0 audio are uploaded to the local app and stored in a temporary directory on this computer; they are removed when the application exits. Do not expose the local port through a proxy or port-forward.
+The application binds only to `127.0.0.1`, uses a per-run request token, and does not make external network requests. Disc files, images, and optional SND0 audio are uploaded to the local app and stored in a temporary directory on this computer; disc uploads are removed as they are converted, and remaining temporary files are removed when the application exits. Do not expose the local port through a proxy or port-forward.
 
 ## Implementation and bundled resources
 
